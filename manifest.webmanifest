@@ -1,0 +1,17 @@
+{
+  "name": "여행이력 기록",
+  "short_name": "여행이력",
+  "description": "여행하면서 그날그날 기록을 남기고 구글시트로 관리하는 앱",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FAF6EC",
+  "theme_color": "#1D3557",
+  "lang": "ko",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
