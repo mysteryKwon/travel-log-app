@@ -16,6 +16,8 @@
 <meta name="apple-mobile-web-app-title" content="여행이력">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 
 <style>
@@ -124,18 +126,29 @@
   .filters{ display:flex; gap:8px; margin-bottom:14px; overflow-x:auto; padding-bottom:4px; }
   .filters select, .filters input{ border:1.5px solid var(--line); border-radius:6px; padding:8px 10px; font-size:18px; background:var(--card); color:var(--ink); }
 
-  .map-wrap{ border:1.5px solid var(--line); border-radius:10px; overflow:hidden; background:#EAF1F3; position:relative; }
-  html[data-theme="dark"] .map-wrap{ background:#1B2530; }
-  .map-wrap svg{ display:block; width:100%; height:auto; }
-  .map-dot{ fill:var(--brick); stroke:var(--paper); stroke-width:1.5; cursor:pointer; }
+  .leaflet-map-box{ width:100%; height:360px; border-radius:10px; overflow:hidden; border:1.5px solid var(--line); }
+  .leaflet-popup-content{ font-family:'Inter',sans-serif; font-size:14px; }
+  .red-pin-icon{ background:transparent; border:none; }
   .map-legend{ font-size:16px; color:var(--sub); margin-top:10px; text-align:center; }
-  .pin-tooltip{ position:absolute; background:var(--navy-deep); color:#fff; padding:6px 10px; border-radius:6px; font-size:16px; pointer-events:none; opacity:0; transition:opacity .15s; white-space:nowrap; z-index:10; transform:translate(-50%,-130%); }
 
   .stat-grid{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:20px; }
   .stat-box{ background:var(--navy); color:var(--paper); border-radius:10px; padding:16px 10px; text-align:center; }
   .stat-box .num{ font-family:'Fraunces',serif; font-size:33px; font-weight:700; color:var(--gold); }
   .stat-box .label{ font-size:15px; margin-top:4px; opacity:0.85; }
   .year-row{ display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .period-row{ padding:12px 0; border-bottom:1px solid var(--line); }
+  .period-row:last-child{ border-bottom:none; }
+  .period-row-top{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+  .period-label{ font-weight:700; color:var(--heading); font-size:15px; }
+  .period-spend{ font-family:'Space Mono',monospace; font-weight:700; color:var(--brick); font-size:15px; }
+  .period-sub{ font-size:13px; color:var(--sub); margin-top:6px; }
+  .period-row .bar-track{ height:8px; }
+  .day-items{ margin:0; padding-left:22px; }
+  .day-items li{ display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 8px; padding:6px 0; border-bottom:1px dashed var(--line); font-size:13px; }
+  .day-items li:last-child{ border-bottom:none; }
+  .day-items .item-label{ font-weight:700; color:var(--navy); flex-shrink:0; width:32px; }
+  .day-items .item-detail{ flex:1; min-width:0; color:var(--ink); }
+  .day-items .item-amount{ font-family:'Space Mono',monospace; font-weight:700; color:var(--brick); flex-shrink:0; }
   .year-row .yr{ font-family:'Space Mono',monospace; font-weight:700; width:48px; color:var(--navy); }
   .bar-track{ flex:1; height:10px; background:var(--paper-dark); border-radius:5px; overflow:hidden; }
   .bar-fill{ height:100%; background:var(--brick); border-radius:5px; }
@@ -254,7 +267,7 @@
   <!-- 지도 -->
   <div class="view" id="tab-map">
     <h3 style="margin-bottom:10px;">방문 지도</h3>
-    <div class="map-wrap"><div id="map-svg-holder"></div><div class="pin-tooltip" id="pin-tooltip"></div></div>
+    <div id="leaflet-map" class="leaflet-map-box"></div>
     <div class="map-legend" id="map-legend">여행 중 기록한 지점을 표시합니다</div>
   </div>
 
@@ -262,6 +275,11 @@
   <div class="view" id="tab-stats">
     <h3 style="margin-bottom:14px;">여행 통계</h3>
     <div class="stat-grid" id="stat-grid"><div class="loading">불러오는 중…</div></div>
+    <div class="theme-toggle" id="stat-period-toggle" style="margin-bottom:14px;">
+      <button type="button" data-period="year" class="active">연도별</button>
+      <button type="button" data-period="month">월별</button>
+      <button type="button" data-period="day">일별</button>
+    </div>
     <div id="year-breakdown"></div>
   </div>
 
@@ -313,7 +331,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const APP_VERSION = '2.4.1';
+  const APP_VERSION = '2.9.1';
   const STORAGE_KEY_URL = 'travellog_api_url';
   const THEME_KEY = 'travellog_theme';
   const DEFAULT_API_URL = ''; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
@@ -868,43 +886,212 @@
     }catch(err){ showToast('오류: ' + err.message, true); }
   }
 
-  // ---------- 지도 ----------
-  function renderMap(){
-    const holder = document.getElementById('map-svg-holder');
-    const pts = LEGS.filter(l => l.lat && l.lng && !isNaN(parseFloat(l.lat)) && !isNaN(parseFloat(l.lng)));
-    const W = 600, H = 320;
-    function project(lat, lng){ return [(parseFloat(lng)+180)/360*W, (90-parseFloat(lat))/180*H]; }
-    let dots = '';
-    pts.forEach(function(l){
-      const [x,y] = project(l.lat, l.lng);
-      const trip = TRIPS.find(t => t.id === l.tripId);
-      const label = (trip ? trip.title + ' · ' : '') + (l.toPlace || l.fromPlace || '');
-      dots += '<circle class="map-dot" cx="'+x+'" cy="'+y+'" r="6" data-label="'+escapeHtml(label)+'"></circle>';
-    });
-    holder.innerHTML = '<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg"><rect width="'+W+'" height="'+H+'" fill="transparent"/>' + gridLines(W,H) + dots + '</svg>';
+  // ---------- 지도 (Leaflet + OpenStreetMap, 무료/API키 불필요) ----------
+  let leafletMapInstance = null;
+  let leafletMarkersLayer = null;
+  let redPinIcon = null;
 
-    const tooltip = document.getElementById('pin-tooltip');
-    holder.querySelectorAll('.map-dot').forEach(function(dot){
-      dot.addEventListener('click', function(){
-        const rect = holder.getBoundingClientRect();
-        tooltip.textContent = dot.getAttribute('data-label');
-        tooltip.style.left = (dot.getBoundingClientRect().left - rect.left + 6) + 'px';
-        tooltip.style.top = (dot.getBoundingClientRect().top - rect.top) + 'px';
-        tooltip.style.opacity = 1;
-        setTimeout(()=>{ tooltip.style.opacity = 0; }, 1800);
-      });
+  if (typeof L !== 'undefined'){
+    // 구글맵 스타일의 빨간 핀 마커 (SVG 직접 그림 - 이미지 파일 불필요, 더 크고 잘 보임)
+    const redPinSvg =
+      '<svg width="34" height="46" viewBox="0 0 34 46" xmlns="http://www.w3.org/2000/svg">' +
+        '<path d="M17 0C7.6 0 0 7.6 0 17c0 12.4 17 29 17 29s17-16.6 17-29C34 7.6 26.4 0 17 0z" fill="#E02424" stroke="#7A0000" stroke-width="1"/>' +
+        '<circle cx="17" cy="17" r="7" fill="#ffffff"/>' +
+      '</svg>';
+    redPinIcon = L.divIcon({
+      className: 'red-pin-icon',
+      html: redPinSvg,
+      iconSize: [34, 46],
+      iconAnchor: [17, 46],
+      popupAnchor: [0, -42]
     });
+  }
+
+  function renderMap(){
+    if (typeof L === 'undefined'){
+      document.getElementById('map-legend').textContent = '지도를 불러오지 못했어요. 인터넷 연결을 확인해주세요.';
+      return;
+    }
+
+    const pts = LEGS.filter(l => l.lat && l.lng && !isNaN(parseFloat(l.lat)) && !isNaN(parseFloat(l.lng)));
+
+    if (!leafletMapInstance){
+      leafletMapInstance = L.map('leaflet-map').setView([36.5, 127.8], 7); // 기본값: 대한민국 중심
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(leafletMapInstance);
+      leafletMarkersLayer = L.layerGroup().addTo(leafletMapInstance);
+    } else {
+      leafletMarkersLayer.clearLayers();
+      setTimeout(function(){ leafletMapInstance.invalidateSize(); }, 50);
+    }
+
+    const latlngs = [];
+    pts.forEach(function(l){
+      const lat = parseFloat(l.lat), lng = parseFloat(l.lng);
+      const trip = TRIPS.find(t => t.id === l.tripId);
+      const label = (trip ? escapeHtml(trip.title) + ' · ' : '') + escapeHtml(l.toPlace || l.fromPlace || '');
+      L.marker([lat, lng], { icon: redPinIcon }).bindPopup(label).addTo(leafletMarkersLayer);
+      latlngs.push([lat, lng]);
+    });
+
+    if (latlngs.length === 1){
+      leafletMapInstance.setView(latlngs[0], 13);
+    } else if (latlngs.length > 1){
+      leafletMapInstance.fitBounds(latlngs, { padding: [30, 30] });
+    }
+
     const skipped = LEGS.length - pts.length;
     document.getElementById('map-legend').textContent = pts.length + '개 지점 표시 중' + (skipped>0 ? ' (위치를 찾지 못한 '+skipped+'건 제외)' : '');
   }
-  function gridLines(W,H){
-    let lines = '';
-    for(let i=1;i<12;i++){ const x=i*W/12; lines += '<line x1="'+x+'" y1="0" x2="'+x+'" y2="'+H+'" stroke="var(--line)" stroke-width="1"/>'; }
-    for(let i=1;i<6;i++){ const y=i*H/6; lines += '<line x1="0" y1="'+y+'" x2="'+W+'" y2="'+y+'" stroke="var(--line)" stroke-width="1"/>'; }
-    return lines;
-  }
 
   // ---------- 통계 ----------
+  let STAT_PERIOD = 'year';
+
+  document.getElementById('stat-period-toggle').addEventListener('click', function(e){
+    const btn = e.target.closest('button[data-period]');
+    if (!btn) return;
+    STAT_PERIOD = btn.dataset.period;
+    document.querySelectorAll('#stat-period-toggle button').forEach(b => b.classList.toggle('active', b === btn));
+    renderPeriodBreakdown();
+  });
+
+  function periodKeyOf(dateStr, mode){
+    if (mode === 'year') return dateStr.substring(0,4);
+    if (mode === 'month') return dateStr.substring(0,7);
+    return dateStr;
+  }
+  function periodLabelOf(key, mode){
+    if (mode === 'year') return key + '년';
+    if (mode === 'month'){
+      const parts = key.split('-');
+      return parts[0] + '년 ' + parseInt(parts[1],10) + '월';
+    }
+    const d = new Date(key + 'T00:00:00');
+    if (isNaN(d.getTime())) return key;
+    const weekdays = ['일','월','화','수','목','금','토'];
+    return key + ' (' + weekdays[d.getDay()] + ')';
+  }
+
+  // 기록 하나를 이동/음식/숙소 중 하나로 분류 (지출 항목 리스트에 쓸 라벨/내용)
+  function classifyLegCategory(l){
+    if (l.transport) return { label: '이동', detail: buildRouteText(l) };
+    if (l.foodType || l.foodName) return { label: '음식', detail: [l.foodType, l.foodName].filter(Boolean).join(' · ') };
+    if (l.lodgingType || l.lodgingName) return { label: '숙소', detail: [l.lodgingType, l.lodgingName].filter(Boolean).join(' · ') };
+    return { label: '기타', detail: buildRouteText(l) };
+  }
+
+  // 지출금액이 있는 기록만 이동/음식/숙소 항목 리스트로 만듦 (일별·월별 공용)
+  function buildItemsHtml(legs){
+    const itemized = legs.filter(l => parseFloat(l.actualSpend) > 0);
+    if (!itemized.length) return '<div class="hint" style="padding:4px 0 0;">지출 입력된 항목이 없어요</div>';
+    return '<ol class="day-items">' + itemized.map(function(l){
+      const c = classifyLegCategory(l);
+      return '<li><span class="item-label">'+escapeHtml(c.label)+'</span>' +
+        '<span class="item-detail">'+escapeHtml(c.detail || '')+'</span>' +
+        '<span class="item-amount">'+Number(l.actualSpend).toLocaleString()+'원</span></li>';
+    }).join('') + '</ol>';
+  }
+  function sumSpend(legs){
+    return legs.reduce((sum, l) => sum + (parseFloat(l.actualSpend) || 0), 0);
+  }
+
+  function renderDayBreakdown(){
+    const byDate = {};
+    LEGS.forEach(function(l){
+      if (!l.date) return;
+      if (!byDate[l.date]) byDate[l.date] = { legs: [], places: new Set() };
+      byDate[l.date].legs.push(l);
+      if (l.toPlace) byDate[l.date].places.add(l.toPlace);
+    });
+
+    const dates = Object.keys(byDate).sort().reverse();
+    const container = document.getElementById('year-breakdown');
+    if (dates.length === 0){
+      container.innerHTML = '<div class="hint">아직 기록이 없어요</div>';
+      return;
+    }
+
+    container.innerHTML = dates.map(function(date){
+      const day = byDate[date];
+      const daySpend = sumSpend(day.legs);
+      return '<div class="period-row">' +
+        '<div class="period-row-top"><span class="period-label">'+escapeHtml(periodLabelOf(date, 'day'))+'</span>' +
+        '<span class="period-spend">'+Math.round(daySpend).toLocaleString()+'원</span></div>' +
+        '<div class="period-sub" style="margin-bottom:8px;">'+day.legs.length+'건 · 방문지 '+day.places.size+'곳</div>' +
+        buildItemsHtml(day.legs) +
+      '</div>';
+    }).join('');
+  }
+
+  // 월별 탭 = 방문지(도착지) 기준으로 집계, 일별과 같은 항목 리스트 형식으로 표시
+  // 월별 탭 = 방문지(도착지) 기준으로 집계, 일별과 같은 항목 리스트 형식으로 표시
+  function renderPlaceBreakdown(){
+    const byPlace = {};
+    LEGS.forEach(function(l){
+      if (!l.toPlace) return;
+      if (!byPlace[l.toPlace]) byPlace[l.toPlace] = { legs: [], lastDate: '' };
+      byPlace[l.toPlace].legs.push(l);
+      if (l.date && l.date > byPlace[l.toPlace].lastDate) byPlace[l.toPlace].lastDate = l.date;
+    });
+
+    const places = Object.keys(byPlace).sort((a,b) => sumSpend(byPlace[b].legs) - sumSpend(byPlace[a].legs));
+    const container = document.getElementById('year-breakdown');
+    if (places.length === 0){
+      container.innerHTML = '<div class="hint">아직 기록이 없어요</div>';
+      return;
+    }
+
+    container.innerHTML = places.map(function(place){
+      const p = byPlace[place];
+      const placeSpend = sumSpend(p.legs);
+      return '<div class="period-row">' +
+        '<div class="period-row-top"><span class="period-label">'+escapeHtml(place)+'</span>' +
+        '<span class="period-spend">'+Math.round(placeSpend).toLocaleString()+'원</span></div>' +
+        '<div class="period-sub" style="margin-bottom:8px;">'+p.legs.length+'건'+(p.lastDate ? ' · 최근 '+p.lastDate : '')+'</div>' +
+        buildItemsHtml(p.legs) +
+      '</div>';
+    }).join('');
+  }
+
+  function renderPeriodBreakdown(){
+    const mode = STAT_PERIOD;
+    if (mode === 'day'){ renderDayBreakdown(); return; }
+    if (mode === 'month'){ renderPlaceBreakdown(); return; }
+
+    const groups = {};
+    LEGS.forEach(function(l){
+      if (!l.date) return;
+      const key = periodKeyOf(l.date, mode);
+      if (!groups[key]) groups[key] = { spend: 0, count: 0, places: new Set() };
+      groups[key].spend += parseFloat(l.actualSpend) || 0;
+      groups[key].count += 1;
+      if (l.toPlace) groups[key].places.add(l.toPlace);
+    });
+
+    const keys = Object.keys(groups).sort().reverse();
+    const container = document.getElementById('year-breakdown');
+    if (keys.length === 0){
+      container.innerHTML = '<div class="hint">아직 기록이 없어요</div>';
+      return;
+    }
+
+    const maxSpend = Math.max.apply(null, keys.map(k => groups[k].spend).concat([1]));
+
+    container.innerHTML = keys.map(function(key){
+      const g = groups[key];
+      const pct = Math.round((g.spend / maxSpend) * 100);
+      const sub = g.count + '건 · 방문지 ' + g.places.size + '곳';
+      return '<div class="period-row">' +
+        '<div class="period-row-top"><span class="period-label">'+escapeHtml(periodLabelOf(key, mode))+'</span>' +
+        '<span class="period-spend">'+Math.round(g.spend).toLocaleString()+'원</span></div>' +
+        '<div class="bar-track"><div class="bar-fill" style="width:'+pct+'%"></div></div>' +
+        '<div class="period-sub">'+sub+'</div>' +
+      '</div>';
+    }).join('');
+  }
+
   function renderStats(){
     const totalTrips = TRIPS.length;
     const places = new Set();
@@ -916,14 +1103,7 @@
       '<div class="stat-box"><div class="num">'+places.size+'</div><div class="label">방문지 수</div></div>' +
       '<div class="stat-box"><div class="num">'+Math.round(totalSpend/10000)+'만</div><div class="label">총 지출(원)</div></div>';
 
-    const byYear = {};
-    TRIPS.forEach(t => { const year = (t.startDate||'').substring(0,4) || '미상'; byYear[year] = (byYear[year]||0) + 1; });
-    const years = Object.keys(byYear).sort().reverse();
-    const maxCount = Math.max.apply(null, years.map(y => byYear[y]).concat([1]));
-    document.getElementById('year-breakdown').innerHTML = years.map(function(y){
-      const pct = Math.round(byYear[y] / maxCount * 100);
-      return '<div class="year-row"><div class="yr">'+y+'</div><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%"></div></div><div class="cnt">'+byYear[y]+'회</div></div>';
-    }).join('');
+    renderPeriodBreakdown();
   }
 
   // ---------- 초기화 ----------
