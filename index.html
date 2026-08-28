@@ -232,8 +232,8 @@
         <div><label id="to-field-label">도착지</label><input type="text" id="l-to" placeholder="예: 홍도"></div>
       </div>
       <div class="field row2">
-        <div><label>출발시간 (선택)</label><input type="time" id="l-depart-time"></div>
-        <div><label>도착시간 (선택)</label><input type="time" id="l-arrive-time"></div>
+        <div><label>출발시간 (선택)</label><input type="time" id="l-depart-time" lang="en-GB" min="00:00" max="23:59"></div>
+        <div><label>도착시간 (선택)</label><input type="time" id="l-arrive-time" lang="en-GB" min="00:00" max="23:59"></div>
       </div>
       <div class="field"><label>교통수단 (여러 개 선택 가능)</label><div class="chip-group" id="chip-transport"></div></div>
       <div class="field"><label>숙소 유형 (여러 개 선택 가능)</label><div class="chip-group" id="chip-lodging"></div></div>
@@ -331,10 +331,10 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const APP_VERSION = '2.9.2';
+  const APP_VERSION = '2.9.3';
   const STORAGE_KEY_URL = 'travellog_api_url';
   const THEME_KEY = 'travellog_theme';
-  const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycby1asRNbmUP1aG3ID4B-QoMjWcNOdvFwYl2sFdIlJ0YzjkpEm18NRBV9TQkdRkJlM51/exec'; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
+  const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbwPlmozAgLoDH9TPlM3vdo1OXav3Xk7Dl_AlugzOJbAmqb0whJ-IXMy56u9RIFSl1he/exec'; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
 
   let TRIPS = [];
   let LEGS = [];

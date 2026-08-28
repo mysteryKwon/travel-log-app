@@ -1,7 +1,7 @@
 // 여행이력 앱 서비스워커
 // - 앱 화면(껍데기)만 캐시해서 오프라인에서도 앱이 "열리기는" 하도록 함
 // - 구글시트 저장/조회 API 요청은 항상 네트워크로 그대로 통과시킴 (캐시하지 않음)
-const CACHE_VERSION = 'v6'; // index.html의 APP_VERSION이 바뀔 때 함께 올려주세요
+const CACHE_VERSION = 'v7'; // index.html의 APP_VERSION이 바뀔 때 함께 올려주세요
 const CACHE_NAME = 'travellog-shell-' + CACHE_VERSION;
 
 const SHELL_FILES = [
