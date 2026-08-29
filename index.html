@@ -165,6 +165,12 @@
   .photo-count-badge{ font-family:'Space Mono',monospace; font-size:13px; color:var(--sub); font-weight:400; }
   .photo-grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
   .photo-thumb-gallery{ position:relative; width:100%; padding-top:100%; border-radius:8px; overflow:hidden; background:var(--paper-dark); cursor:pointer; }
+  .photo-thumb-gallery.selected{ outline:3px solid var(--brick); outline-offset:-3px; }
+  .photo-select-check{
+    position:absolute; top:5px; right:5px; width:22px; height:22px; border-radius:50%;
+    background:rgba(0,0,0,0.55); color:#fff; display:flex; align-items:center; justify-content:center;
+    font-size:14px; font-weight:700; border:1.5px solid #fff; z-index:2;
+  }
   .photo-thumb-gallery img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
   .photo-lightbox{
     position:fixed; inset:0; background:rgba(10,10,10,0.92); z-index:100;
@@ -309,7 +315,16 @@
 
   <!-- 사진 -->
   <div class="view" id="tab-photos">
-    <h3 style="margin-bottom:14px;">방문지별 사진첩</h3>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+      <h3>방문지별 사진첩</h3>
+      <button type="button" class="btn-sm" id="btn-photo-select-toggle" onclick="togglePhotoSelectMode()">선택</button>
+    </div>
+    <div id="photo-select-bar" style="display:none; margin-bottom:14px;">
+      <button type="button" id="btn-photo-delete-selected" onclick="deleteSelectedPhotos()"
+        style="width:100%; background:var(--brick); color:#fff; border:none; padding:13px; border-radius:6px; font-weight:600; font-size:16px; cursor:pointer;">
+        선택한 사진 삭제 (<span id="photo-selected-count">0</span>장)
+      </button>
+    </div>
     <div id="photo-gallery"><div class="loading">불러오는 중…</div></div>
   </div>
 
@@ -378,10 +393,10 @@
 </div>
 
 <script>
-  const APP_VERSION = '2.11.0';
+  const APP_VERSION = '2.12.0';
   const STORAGE_KEY_URL = 'travellog_api_url';
   const THEME_KEY = 'travellog_theme';
-  const DEFAULT_API_URL = ''; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
+  const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyHE3VSubF1BgkRxg95ee7jkSCFhEWT_oZMHkaWsF00ppSqPLtINoE2Suo7S15a93tm/exec'; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
 
   let TRIPS = [];
   let LEGS = [];
@@ -1041,6 +1056,78 @@
   }
 
   // ---------- 사진첩 (방문지별) ----------
+  // ---------- 사진첩 선택 삭제 ----------
+  let PHOTO_SELECT_MODE = false;
+  let SELECTED_PHOTOS = new Set(); // "legId::url" 조합 키
+
+  function togglePhotoSelectMode(){
+    PHOTO_SELECT_MODE = !PHOTO_SELECT_MODE;
+    SELECTED_PHOTOS.clear();
+    document.getElementById('btn-photo-select-toggle').textContent = PHOTO_SELECT_MODE ? '취소' : '선택';
+    document.getElementById('photo-select-bar').style.display = PHOTO_SELECT_MODE ? 'block' : 'none';
+    updatePhotoSelectedCount();
+    renderPhotoGallery();
+  }
+  function updatePhotoSelectedCount(){
+    document.getElementById('photo-selected-count').textContent = SELECTED_PHOTOS.size;
+  }
+
+  document.getElementById('photo-gallery').addEventListener('click', function(e){
+    const thumb = e.target.closest('.photo-thumb-gallery');
+    if (!thumb) return;
+    const legId = thumb.dataset.leg;
+    const url = thumb.dataset.url;
+    if (PHOTO_SELECT_MODE){
+      const key = legId + '::' + url;
+      const checkEl = thumb.querySelector('.photo-select-check');
+      if (SELECTED_PHOTOS.has(key)){
+        SELECTED_PHOTOS.delete(key);
+        thumb.classList.remove('selected');
+        if (checkEl) checkEl.textContent = '';
+      } else {
+        SELECTED_PHOTOS.add(key);
+        thumb.classList.add('selected');
+        if (checkEl) checkEl.textContent = '✓';
+      }
+      updatePhotoSelectedCount();
+    } else {
+      openLightbox(encodeURIComponent(driveImageUrl(url, 1600)));
+    }
+  });
+
+  async function deleteSelectedPhotos(){
+    if (SELECTED_PHOTOS.size === 0) return;
+    if (!confirm(SELECTED_PHOTOS.size + '장을 사진첩에서 제거할까요? (구글드라이브 원본 파일은 그대로 남아요)')) return;
+
+    const groups = {};
+    SELECTED_PHOTOS.forEach(function(key){
+      const idx = key.indexOf('::');
+      const legId = key.substring(0, idx);
+      const url = key.substring(idx + 2);
+      if (!groups[legId]) groups[legId] = [];
+      groups[legId].push(url);
+    });
+
+    const btn = document.getElementById('btn-photo-delete-selected');
+    btn.disabled = true;
+    try{
+      for (const legId of Object.keys(groups)){
+        await apiPost('photo_delete', { legId: legId, urls: groups[legId] });
+      }
+      showToast('사진첩에서 제거됐어요');
+      SELECTED_PHOTOS.clear();
+      PHOTO_SELECT_MODE = false;
+      document.getElementById('btn-photo-select-toggle').textContent = '선택';
+      document.getElementById('photo-select-bar').style.display = 'none';
+      await loadAll();
+      renderPhotoGallery();
+    }catch(err){
+      showToast('삭제 실패: ' + err.message, true);
+    }finally{
+      btn.disabled = false;
+    }
+  }
+
   function renderPhotoGallery(){
     const byPlace = {};
     LEGS.forEach(function(l){
@@ -1048,7 +1135,7 @@
       if (urls.length === 0) return;
       const place = l.toPlace || l.fromPlace || '장소 미상';
       if (!byPlace[place]) byPlace[place] = { photos: [], lastDate: '' };
-      urls.forEach(u => byPlace[place].photos.push(u));
+      urls.forEach(u => byPlace[place].photos.push({ url: u, legId: l.id }));
       if (l.date && l.date > byPlace[place].lastDate) byPlace[place].lastDate = l.date;
     });
 
@@ -1062,11 +1149,14 @@
 
     container.innerHTML = places.map(function(place){
       const p = byPlace[place];
-      const thumbsHtml = p.photos.map(function(url){
-        const thumb = driveImageUrl(url, 300);
-        const full = driveImageUrl(url, 1600);
-        return '<div class="photo-thumb-gallery" onclick="openLightbox(\''+encodeURIComponent(full)+'\')">' +
-          '<img src="'+thumb+'" loading="lazy" onerror="this.parentElement.style.display=\'none\'"></div>';
+      const thumbsHtml = p.photos.map(function(item){
+        const key = item.legId + '::' + item.url;
+        const selected = SELECTED_PHOTOS.has(key);
+        const thumb = driveImageUrl(item.url, 300);
+        return '<div class="photo-thumb-gallery'+(selected ? ' selected' : '')+'" data-leg="'+escapeHtml(item.legId)+'" data-url="'+escapeHtml(item.url)+'">' +
+          '<img src="'+thumb+'" loading="lazy" onerror="this.parentElement.style.display=\'none\'">' +
+          (PHOTO_SELECT_MODE ? '<div class="photo-select-check">'+(selected ? '✓' : '')+'</div>' : '') +
+        '</div>';
       }).join('');
 
       return '<div class="photo-section">' +
