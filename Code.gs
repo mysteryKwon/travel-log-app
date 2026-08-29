@@ -13,7 +13,7 @@
  */
 
 // ===== 설정 =====
-const SCRIPT_VERSION = '2.12.0'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
+const SCRIPT_VERSION = '2.12.1'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
 
 const PHOTO_FOLDER_NAME = '여행이력_사진';
 const TRIPS_SHEET = 'Trips';
