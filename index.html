@@ -159,6 +159,23 @@
   .photo-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
   .photo-thumb .rm{ position:absolute; top:2px; right:2px; background:rgba(0,0,0,0.6); color:#fff; border:none; border-radius:50%; width:17px; height:17px; font-size:14px; cursor:pointer; }
 
+  .photo-section{ margin-bottom:22px; }
+  .photo-section-header{ display:flex; justify-content:space-between; align-items:baseline; font-family:'Fraunces',serif; font-weight:700; font-size:16px; color:var(--heading); margin-bottom:8px; }
+  .photo-count-badge{ font-family:'Space Mono',monospace; font-size:13px; color:var(--sub); font-weight:400; }
+  .photo-grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
+  .photo-thumb-gallery{ position:relative; width:100%; padding-top:100%; border-radius:8px; overflow:hidden; background:var(--paper-dark); cursor:pointer; }
+  .photo-thumb-gallery img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
+  .photo-lightbox{
+    position:fixed; inset:0; background:rgba(10,10,10,0.92); z-index:100;
+    display:none; align-items:center; justify-content:center; padding:24px;
+  }
+  .photo-lightbox.show{ display:flex; }
+  .photo-lightbox img{ max-width:100%; max-height:100%; border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,0.5); }
+  .photo-lightbox .close-btn{
+    position:absolute; top:18px; right:18px; background:rgba(255,255,255,0.15); color:#fff;
+    border:none; border-radius:50%; width:42px; height:42px; font-size:20px; cursor:pointer;
+  }
+
   .theme-toggle{ display:flex; gap:8px; }
   .theme-toggle button{ flex:1; padding:9px 4px; border-radius:8px; border:1.5px solid var(--line); background:var(--card); color:var(--ink); font-size:16px; cursor:pointer; }
   .theme-toggle button.active{ background:var(--navy); border-color:var(--navy); color:#fff; }
@@ -285,6 +302,12 @@
     <div class="map-legend" id="map-legend">여행 중 기록한 지점을 표시합니다</div>
   </div>
 
+  <!-- 사진 -->
+  <div class="view" id="tab-photos">
+    <h3 style="margin-bottom:14px;">방문지별 사진첩</h3>
+    <div id="photo-gallery"><div class="loading">불러오는 중…</div></div>
+  </div>
+
   <!-- 통계 -->
   <div class="view" id="tab-stats">
     <h3 style="margin-bottom:14px;">여행 통계</h3>
@@ -338,17 +361,22 @@
   <button data-view="add" class="active" onclick="switchTab('add')"><span class="ic">✎</span>입력</button>
   <button data-view="list" onclick="switchTab('list')"><span class="ic">☰</span>목록</button>
   <button data-view="map" onclick="switchTab('map')"><span class="ic">◎</span>지도</button>
+  <button data-view="photos" onclick="switchTab('photos')"><span class="ic">🖼</span>사진</button>
   <button data-view="stats" onclick="switchTab('stats')"><span class="ic">▤</span>통계</button>
   <button data-view="settings" onclick="switchTab('settings')"><span class="ic">⚙</span>설정</button>
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="photo-lightbox" id="photo-lightbox" onclick="closeLightbox()">
+  <button type="button" class="close-btn" onclick="closeLightbox()">✕</button>
+  <img id="photo-lightbox-img" src="" onclick="event.stopPropagation()">
+</div>
 
 <script>
-  const APP_VERSION = '2.9.4';
+  const APP_VERSION = '2.10.0';
   const STORAGE_KEY_URL = 'travellog_api_url';
   const THEME_KEY = 'travellog_theme';
-  const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxqKVEHbFh8xzZ3uBzi2aRaZvqsmnsTuFd-k47O3qUDYXclKbnY9jCsP1w38-KaorRG/exec'; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
+  const DEFAULT_API_URL = ''; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
 
   let TRIPS = [];
   let LEGS = [];
@@ -362,6 +390,14 @@
 
   function apiUrlValue(){ return localStorage.getItem(STORAGE_KEY_URL) || DEFAULT_API_URL; }
   function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  // 구글드라이브 "file/d/ID/view" 공유링크는 <img>로 바로 안 보이므로,
+  // 실제 이미지가 로드되는 썸네일 URL 형식으로 변환
+  function driveImageUrl(url, size){
+    if (!url) return url;
+    const m = url.match(/\/file\/d\/([^/]+)/) || url.match(/[?&]id=([^&]+)/);
+    if (m && m[1]) return 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w' + (size || 800);
+    return url;
+  }
   function buildRouteText(l){
     const left = [l.departTime, l.fromPlace].filter(Boolean).join(' ');
     const right = [l.arriveTime, l.toPlace].filter(Boolean).join(' ');
@@ -447,6 +483,7 @@
     document.getElementById('tab-' + name).classList.add('active');
     if (name === 'list') renderList();
     if (name === 'map') renderMap();
+    if (name === 'photos') renderPhotoGallery();
     if (name === 'stats') renderStats();
   }
 
@@ -751,7 +788,7 @@
     const grid = document.getElementById('photo-preview');
     let html = '';
     EXISTING_PHOTO_URLS.forEach((url, i) => {
-      html += '<div class="photo-thumb"><img src="'+url+'" onerror="this.parentElement.style.display=\'none\'"><button type="button" class="rm" onclick="removeExistingPhoto('+i+')">✕</button></div>';
+      html += '<div class="photo-thumb"><img src="'+driveImageUrl(url,200)+'" onerror="this.parentElement.style.display=\'none\'"><button type="button" class="rm" onclick="removeExistingPhoto('+i+')">✕</button></div>';
     });
     PENDING_PHOTOS.forEach(p => {
       html += '<div class="photo-thumb"><img src="'+p.dataUrl+'"><button type="button" class="rm" onclick="removePendingPhoto(\''+p.localId+'\')">✕</button></div>';
@@ -992,6 +1029,52 @@
 
     const skipped = LEGS.length - pts.length;
     document.getElementById('map-legend').textContent = pts.length + '개 지점 표시 중' + (skipped>0 ? ' (위치를 찾지 못한 '+skipped+'건 제외)' : '');
+  }
+
+  // ---------- 사진첩 (방문지별) ----------
+  function renderPhotoGallery(){
+    const byPlace = {};
+    LEGS.forEach(function(l){
+      const urls = (l.photoUrl || '').split(',').map(s => s.trim()).filter(Boolean);
+      if (urls.length === 0) return;
+      const place = l.toPlace || l.fromPlace || '장소 미상';
+      if (!byPlace[place]) byPlace[place] = { photos: [], lastDate: '' };
+      urls.forEach(u => byPlace[place].photos.push(u));
+      if (l.date && l.date > byPlace[place].lastDate) byPlace[place].lastDate = l.date;
+    });
+
+    const places = Object.keys(byPlace).sort((a,b) => (byPlace[b].lastDate||'').localeCompare(byPlace[a].lastDate||''));
+    const container = document.getElementById('photo-gallery');
+
+    if (places.length === 0){
+      container.innerHTML = '<div class="empty"><div class="stamp">NO<br>PHOTO</div>아직 등록된 사진이 없어요<br>일자 기록에 사진을 첨부해보세요</div>';
+      return;
+    }
+
+    container.innerHTML = places.map(function(place){
+      const p = byPlace[place];
+      const thumbsHtml = p.photos.map(function(url){
+        const thumb = driveImageUrl(url, 300);
+        const full = driveImageUrl(url, 1600);
+        return '<div class="photo-thumb-gallery" onclick="openLightbox(\''+encodeURIComponent(full)+'\')">' +
+          '<img src="'+thumb+'" loading="lazy" onerror="this.parentElement.style.display=\'none\'"></div>';
+      }).join('');
+
+      return '<div class="photo-section">' +
+        '<div class="photo-section-header"><span>'+escapeHtml(place)+'</span>' +
+        '<span class="photo-count-badge">'+p.photos.length+'장</span></div>' +
+        '<div class="photo-grid">'+thumbsHtml+'</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function openLightbox(encodedUrl){
+    document.getElementById('photo-lightbox-img').src = decodeURIComponent(encodedUrl);
+    document.getElementById('photo-lightbox').classList.add('show');
+  }
+  function closeLightbox(){
+    document.getElementById('photo-lightbox').classList.remove('show');
+    document.getElementById('photo-lightbox-img').src = '';
   }
 
   // ---------- 통계 ----------
