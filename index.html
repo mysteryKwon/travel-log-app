@@ -354,9 +354,10 @@
     </div>
     <div class="card">
       <div class="section-label">Google Apps Script 주소</div>
-      <div class="field"><label>웹앱 URL</label><input type="text" id="apiUrl" placeholder="https://script.google.com/macros/s/xxxx/exec"></div>
+      <div class="hint" style="margin-bottom:10px;">보통은 이 칸을 직접 건드릴 필요 없어요. GitHub 저장소의 <b>config.json</b> 파일에 주소를 한 번 넣어두면 모든 기기가 자동으로 그 주소를 씁니다. 아래는 이 기기에서만 다른 주소를 임시로 쓰고 싶을 때만 사용하세요.</div>
+      <div class="field"><label>웹앱 URL (이 기기 전용 재정의, 선택)</label><input type="text" id="apiUrl" placeholder="https://script.google.com/macros/s/xxxx/exec"></div>
       <button type="button" class="btn-sm" style="width:100%;margin-bottom:8px;" onclick="saveApiUrl()">저장 및 연결 확인</button>
-      <div class="hint">설치가이드.md의 안내대로 Apps Script를 배포한 뒤 발급받은 URL을 여기에 붙여넣고 저장하세요. 저장한 주소는 이 스마트폰(브라우저)에만 저장됩니다.</div>
+      <button type="button" class="btn-sm" style="width:100%;" onclick="clearApiUrlOverride()">이 기기 재정의 지우고 config.json 값 사용</button>
     </div>
     <div class="card">
       <div class="section-label">데이터 구조 점검/복구</div>
@@ -394,10 +395,11 @@
 </div>
 
 <script>
-  const APP_VERSION = '2.12.1';
+  const APP_VERSION = '2.13.0';
   const STORAGE_KEY_URL = 'travellog_api_url';
   const THEME_KEY = 'travellog_theme';
-  const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxUgcp11zn7fy6gRk2Meppry1XXgsVF3b7MF4-UQaaD2I2fqFq6bWMs72DFjQvSdECH/exec'; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
+  const DEFAULT_API_URL = ''; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
+  let CONFIG_API_URL = ''; // config.json에서 읽어온 공용 API 주소 (전체 기기 공통)
 
   let TRIPS = [];
   let LEGS = [];
@@ -409,7 +411,18 @@
   const LODGING_OPTIONS = ['호텔','모텔/여관','게스트하우스','펜션','캠핑/글램핑','가족/지인 집','기타'];
   const FOOD_OPTIONS = ['해산물/생선회','한식','분식','카페·디저트','특산물','길거리음식','기타'];
 
-  function apiUrlValue(){ return localStorage.getItem(STORAGE_KEY_URL) || DEFAULT_API_URL; }
+  // 우선순위: 이 기기에서 설정 탭에 직접 입력해 저장한 값(개별 재정의) > config.json(전체 공용) > 코드에 박아둔 기본값
+  function apiUrlValue(){ return localStorage.getItem(STORAGE_KEY_URL) || CONFIG_API_URL || DEFAULT_API_URL; }
+  async function loadConfigJson(){
+    try{
+      const res = await fetch('./config.json', { cache: 'no-store' });
+      if (!res.ok) return;
+      const cfg = await res.json();
+      CONFIG_API_URL = (cfg && cfg.apiUrl) ? cfg.apiUrl.trim() : '';
+    }catch(err){
+      // config.json이 없거나 읽기 실패해도 앱은 계속 동작 (기기별 저장값이나 기본값으로 대체)
+    }
+  }
   function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   // 구글드라이브 "file/d/ID/view" 공유링크는 <img>로 바로 안 보이므로,
   // 실제 이미지가 로드되는 썸네일 URL 형식으로 변환
@@ -581,6 +594,13 @@
     const url = document.getElementById('apiUrl').value.trim();
     localStorage.setItem(STORAGE_KEY_URL, url);
     showToast('저장되었습니다. 연결을 확인합니다...');
+    refreshStatus();
+    loadAll();
+  }
+  function clearApiUrlOverride(){
+    localStorage.removeItem(STORAGE_KEY_URL);
+    document.getElementById('apiUrl').value = apiUrlValue();
+    showToast('이 기기 재정의를 지웠어요. config.json 값을 사용합니다.');
     refreshStatus();
     loadAll();
   }
@@ -1338,11 +1358,12 @@
   }
 
   // ---------- 초기화 ----------
-  window.addEventListener('DOMContentLoaded', () => {
+  window.addEventListener('DOMContentLoaded', async () => {
     initTheme();
     document.getElementById('feVersionTag').textContent = 'v' + APP_VERSION;
     document.getElementById('headerVersionBadge').textContent = 'v' + APP_VERSION;
     document.getElementById('l-date').valueAsDate = new Date();
+    await loadConfigJson();
     document.getElementById('apiUrl').value = apiUrlValue();
     refreshStatus();
     loadAll();
