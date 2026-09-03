@@ -196,6 +196,7 @@
   .navbar{ position:fixed; bottom:0; left:0; right:0; background:var(--paper); border-top:2px solid var(--ink); display:flex; max-width:520px; margin:0 auto; }
   .navbar button{ flex:1; background:none; border:none; padding:10px 2px 8px; font-size:14.5px; font-weight:600; color:var(--sub); cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:3px; }
   .navbar button.active{ color:var(--navy); }
+  .navbar button.nav-locked{ opacity:0.35; }
   .navbar button .ic{ font-size:23px; }
 
   .toast{ position:fixed; bottom:86px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--navy-deep); color:#fff; padding:10px 18px; border-radius:20px; font-size:18px; opacity:0; transition:all .25s ease; pointer-events:none; z-index:50; max-width:88%; text-align:center; }
@@ -408,7 +409,7 @@
 </div>
 
 <script>
-  const APP_VERSION = '2.16.0';
+  const APP_VERSION = '2.17.1';
   const STORAGE_KEY_URL = 'travellog_api_url';
   const THEME_KEY = 'travellog_theme';
   const DEFAULT_API_URL = ''; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
@@ -533,7 +534,14 @@
   });
 
   // ---------- 탭 전환 ----------
+  const TRIP_GATED_TABS = ['list', 'map', 'photos', 'stats'];
+  const VISUALLY_LOCKED_TABS = ['add', 'list', 'map', 'photos', 'stats']; // '입력'은 클릭은 계속 되지만 다른 탭과 톤을 맞춰 흐리게 표시
+
   function switchTab(name){
+    if (TRIP_GATED_TABS.indexOf(name) > -1 && !SELECTED_TRIP_ID){
+      showToast('여행을 먼저 선택해주세요', true);
+      return;
+    }
     document.querySelectorAll('.navbar button').forEach(b => b.classList.toggle('active', b.dataset.view === name));
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
@@ -541,6 +549,15 @@
     if (name === 'map') renderMap();
     if (name === 'photos') renderPhotoGallery();
     if (name === 'stats') renderStats();
+  }
+
+  function updateNavLockState(){
+    const locked = !SELECTED_TRIP_ID;
+    document.querySelectorAll('.navbar button').forEach(function(b){
+      if (VISUALLY_LOCKED_TABS.indexOf(b.dataset.view) > -1){
+        b.classList.toggle('nav-locked', locked);
+      }
+    });
   }
 
   // ---------- fetch 유틸 ----------
@@ -760,6 +777,7 @@
 
   document.getElementById('btn-new-trip').addEventListener('click', function(){
     SELECTED_TRIP_ID = '';
+    updateNavLockState();
     document.getElementById('trip-select').value = '';
     document.getElementById('trip-banner').style.display = 'none';
     document.getElementById('leg-form').style.display = 'none';
@@ -801,6 +819,7 @@
     const banner = document.getElementById('trip-banner');
     const legForm = document.getElementById('leg-form');
     const timeline = document.getElementById('leg-timeline');
+    updateNavLockState();
     if (!SELECTED_TRIP_ID){ banner.style.display='none'; legForm.style.display='none'; timeline.innerHTML=''; return; }
     const trip = TRIPS.find(t => t.id === SELECTED_TRIP_ID);
     if (!trip){ banner.style.display='none'; legForm.style.display='none'; timeline.innerHTML=''; return; }
@@ -1135,7 +1154,7 @@
     try{
       await apiPost('trip_delete', { id: id });
       showToast('삭제됐어요');
-      if (SELECTED_TRIP_ID === id) SELECTED_TRIP_ID = '';
+      if (SELECTED_TRIP_ID === id) { SELECTED_TRIP_ID = ''; updateNavLockState(); }
       await loadAll();
       renderList();
     }catch(err){ showToast('오류: ' + err.message, true); }
@@ -1561,6 +1580,7 @@
     document.getElementById('l-date').valueAsDate = new Date();
     await loadConfigJson();
     document.getElementById('apiUrl').value = apiUrlValue();
+    updateNavLockState();
     refreshStatus();
     loadAll();
   });
