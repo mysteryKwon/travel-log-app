@@ -13,14 +13,14 @@
  */
 
 // ===== 설정 =====
-const SCRIPT_VERSION = '2.12.1'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
+const SCRIPT_VERSION = '2.16.0'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
 
 const PHOTO_FOLDER_NAME = '여행이력_사진';
 const TRIPS_SHEET = 'Trips';
 const LEGS_SHEET = 'Legs';
 
 const TRIP_HEADERS = ['ID', '제목', '시작일', '종료일', '동행자', '예산', '만족도', '전체메모', '등록일시'];
-const LEG_HEADERS = ['ID', 'TripID', '날짜', '출발시간', '도착시간', '출발지', '도착지', '교통수단', '숙소유형', '숙소명', '음식유형', '음식명', '실지출', '메모', '사진링크', '위도', '경도', '등록일시'];
+const LEG_HEADERS = ['ID', 'TripID', '날짜', '출발시간', '도착시간', '출발지', '도착지', '교통수단', '숙소유형', '숙소명', '음식유형', '음식명', '실지출', '이동비', '숙박비', '식대', '커피', '기타비', '메모', '사진링크', '위도', '경도', '등록일시'];
 
 // ===== 진입점 =====
 function doGet(e) {
@@ -52,6 +52,8 @@ function doPost(e) {
     if (type === 'photo_delete') return jsonOut(deletePhotos_(data.legId, data.urls || []));
 
     if (type === 'migrate') return jsonOut(migrateAll_());
+
+    if (type === 'photo_upload') return jsonOut(uploadSinglePhoto_(data.name, data.mime, data.base64));
 
     throw new Error('알 수 없는 요청 유형입니다: ' + type);
   } catch (err) {
@@ -224,8 +226,10 @@ function getAllData_() {
         fromPlace: row[5], toPlace: row[6], transport: row[7],
         lodgingType: row[8], lodgingName: row[9],
         foodType: row[10], foodName: row[11],
-        actualSpend: row[12], memo: row[13], photoUrl: row[14],
-        lat: row[15], lng: row[16], createdAt: formatDate_(row[17])
+        actualSpend: row[12],
+        costTransport: row[13], costLodging: row[14], costFood: row[15], costCoffee: row[16], costEtc: row[17],
+        memo: row[18], photoUrl: row[19],
+        lat: row[20], lng: row[21], createdAt: formatDate_(row[22])
       });
     });
   }
@@ -298,7 +302,9 @@ function addLeg_(data, photos) {
     data.fromPlace || '', data.toPlace || '', data.transport || '',
     data.lodgingType || '', data.lodgingName || '',
     data.foodType || '', data.foodName || '',
-    data.actualSpend || '', data.memo || '', photoUrl, geo.lat, geo.lng, new Date()
+    data.actualSpend || '',
+    data.costTransport || '', data.costLodging || '', data.costFood || '', data.costCoffee || '', data.costEtc || '',
+    data.memo || '', photoUrl, geo.lat, geo.lng, new Date()
   ]);
   return { ok: true, id: id, photoUrl: photoUrl, version: SCRIPT_VERSION };
 }
@@ -313,12 +319,14 @@ function updateLeg_(data, photos) {
 
   for (let i = 0; i < ids.length; i++) {
     if (ids[i][0] === data.id) {
-      sheet.getRange(i + 2, 3, 1, 15).setValues([[
+      sheet.getRange(i + 2, 3, 1, 20).setValues([[
         data.date || '', data.departTime || '', data.arriveTime || '',
         data.fromPlace || '', data.toPlace || '', data.transport || '',
         data.lodgingType || '', data.lodgingName || '',
         data.foodType || '', data.foodName || '',
-        data.actualSpend || '', data.memo || '', photoUrl, geo.lat, geo.lng
+        data.actualSpend || '',
+        data.costTransport || '', data.costLodging || '', data.costFood || '', data.costCoffee || '', data.costEtc || '',
+        data.memo || '', photoUrl, geo.lat, geo.lng
       ]]);
       return { ok: true, photoUrl: photoUrl, version: SCRIPT_VERSION };
     }
@@ -364,7 +372,7 @@ function deleteLeg_(id) {
 // (구글드라이브의 실제 원본 파일은 삭제하지 않고 그대로 둠)
 function deletePhotos_(legId, urlsToRemove) {
   if (!legId) throw new Error('기록을 찾을 수 없습니다.');
-  const PHOTO_COL = 15; // LEG_HEADERS 상 '사진링크' 컬럼 번호
+  const PHOTO_COL = LEG_HEADERS.indexOf('사진링크') + 1; // 헤더 배열에서 동적으로 계산 (컬럼 추가돼도 안전)
   const sheet = getSheet_(LEGS_SHEET, LEG_HEADERS);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) throw new Error('기록이 없습니다.');
@@ -394,6 +402,13 @@ function savePhotoToDrive_(name, mime, base64) {
   const file = folder.createFile(blob);
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   return file.getUrl();
+}
+
+// 사진 한 장만 독립적으로 업로드 (기록 저장과 분리 - 하나가 실패해도 다른 사진/기록에 영향 없음)
+function uploadSinglePhoto_(name, mime, base64) {
+  if (!base64) throw new Error('사진 데이터가 없습니다.');
+  const url = savePhotoToDrive_(name, mime, base64);
+  return { ok: true, url: url, version: SCRIPT_VERSION };
 }
 
 function getPhotoFolder_() {
