@@ -23,7 +23,7 @@
  */
 
 // ===== 설정 =====
-const SCRIPT_VERSION = '2.21.0'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
+const SCRIPT_VERSION = '2.22.0'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
 
 const PHOTO_FOLDER_NAME = '여행이력_사진';
 const TRIPS_SHEET = 'Trips';
@@ -71,6 +71,7 @@ function doPost(e) {
     if (type === 'photo_delete') return jsonOut(deletePhotos_(data.legId, data.urls || [], data.groupId));
 
     if (type === 'migrate') return jsonOut(migrateAll_());
+    if (type === 'claim_ungrouped') return jsonOut(claimUngroupedData_(data.groupId));
 
     if (type === 'photo_upload') return jsonOut(uploadSinglePhoto_(data.name, data.mime, data.base64));
 
@@ -218,6 +219,45 @@ function registerGroup_(groupId, groupName, membersStr) {
   sheet.appendRow([cleanId, cleanName, membersStr || '', new Date()]);
   return { ok: true, groupId: cleanId, groupName: cleanName, version: SCRIPT_VERSION };
 }
+
+/**
+ * 그룹 기능을 쓰기 전에 만들어둔, 그룹ID가 비어있는 예전 여행/기록들을
+ * 현재 로그인한 그룹으로 한 번에 연결함 (구글시트를 직접 열어 수정할 필요 없게)
+ */
+function claimUngroupedData_(groupId) {
+  const cleanId = String(groupId || '').trim();
+  if (!cleanId) throw new Error('그룹ID가 없습니다.');
+
+  const GROUP_COL_TRIP = TRIP_HEADERS.indexOf('그룹ID') + 1;
+  const GROUP_COL_LEG = LEG_HEADERS.indexOf('그룹ID') + 1;
+
+  let tripCount = 0;
+  const tripSheet = getSheet_(TRIPS_SHEET, TRIP_HEADERS);
+  const tLast = tripSheet.getLastRow();
+  if (tLast >= 2) {
+    const range = tripSheet.getRange(2, GROUP_COL_TRIP, tLast - 1, 1);
+    const values = range.getValues();
+    for (let i = 0; i < values.length; i++) {
+      if (!values[i][0]) { values[i][0] = cleanId; tripCount++; }
+    }
+    range.setValues(values);
+  }
+
+  let legCount = 0;
+  const legSheet = getSheet_(LEGS_SHEET, LEG_HEADERS);
+  const lLast = legSheet.getLastRow();
+  if (lLast >= 2) {
+    const range = legSheet.getRange(2, GROUP_COL_LEG, lLast - 1, 1);
+    const values = range.getValues();
+    for (let i = 0; i < values.length; i++) {
+      if (!values[i][0]) { values[i][0] = cleanId; legCount++; }
+    }
+    range.setValues(values);
+  }
+
+  return { ok: true, tripCount: tripCount, legCount: legCount, version: SCRIPT_VERSION };
+}
+
 /**
  * 데이터 구조 점검/복구
  * -------------------------------------------------
