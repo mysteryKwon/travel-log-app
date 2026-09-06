@@ -184,6 +184,15 @@
     border:none; border-radius:50%; width:42px; height:42px; font-size:20px; cursor:pointer;
   }
 
+  .login-gate{
+    position:fixed; inset:0; background:var(--paper); z-index:200;
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .login-gate-card{ width:100%; max-width:380px; }
+  .login-gate-card .eyebrow{ font-family:'Space Mono',monospace; font-size:13px; letter-spacing:0.12em; color:var(--brick); }
+  .login-gate-card h2{ font-family:'Fraunces',serif; font-weight:700; font-size:26px; color:var(--heading); }
+  .login-gate-card .btn-primary{ margin-top:4px; }
+
   .theme-toggle{ display:flex; gap:8px; }
   .theme-toggle button{ flex:1; padding:9px 4px; border-radius:8px; border:1.5px solid var(--line); background:var(--card); color:var(--ink); font-size:16px; cursor:pointer; }
   .theme-toggle button.active{ background:var(--navy); border-color:var(--navy); color:#fff; }
@@ -224,7 +233,8 @@
     </div>
 
     <div class="card" id="trip-form" style="display:none;">
-      <div class="section-label">새 여행 만들기</div>
+      <div class="section-label" id="trip-form-label">새 여행 만들기</div>
+      <input type="hidden" id="t-id" value="">
       <div class="field"><label>여행 제목</label><input type="text" id="t-title" placeholder="예: 홍도·흑산도 4박 5일"></div>
       <div class="field row2">
         <div><label>시작일</label><input type="date" id="t-start"></div>
@@ -241,7 +251,10 @@
         </div>
       </div>
       <div class="field"><label>여행 메모 (선택)</label><textarea id="t-memo" placeholder="여행 방향, 준비물 등"></textarea></div>
-      <button class="btn btn-primary" id="btn-save-trip">여행 만들기</button>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary" id="btn-save-trip" style="flex:1;">여행 만들기</button>
+        <button type="button" class="btn btn-ghost" id="btn-cancel-trip-edit" style="display:none;" onclick="cancelTripEdit()">취소</button>
+      </div>
     </div>
 
     <div id="trip-banner" style="display:none;"></div>
@@ -276,21 +289,22 @@
         </div>
       </div>
       <div class="field"><label>교통수단 (여러 개 선택 가능)</label><div class="chip-group" id="chip-transport"></div></div>
+      <div class="field"><label style="font-weight:400; font-size:14px;">이동비</label><input type="number" id="l-cost-transport" placeholder="원"></div>
+
       <div class="field"><label>숙소 유형 (여러 개 선택 가능)</label><div class="chip-group" id="chip-lodging"></div></div>
       <div class="field"><label>숙소명 (선택)</label><input type="text" id="l-lodging-name" placeholder="예: 대한모텔"></div>
+      <div class="field"><label style="font-weight:400; font-size:14px;">숙박비</label><input type="number" id="l-cost-lodging" placeholder="원"></div>
+
       <div class="field"><label>음식 (여러 개 선택 가능)</label><div class="chip-group" id="chip-food"></div></div>
       <div class="field"><label>먹은 음식/맛집명 (선택)</label><input type="text" id="l-food-name" placeholder="예: 홍어삼합, ○○식당"></div>
+      <div class="field row2">
+        <div><label style="font-weight:400; font-size:14px;">식대</label><input type="number" id="l-cost-food" placeholder="원"></div>
+        <div><label style="font-weight:400; font-size:14px;">커피</label><input type="number" id="l-cost-coffee" placeholder="원"></div>
+      </div>
+
       <div class="field">
-        <label>지출 (항목별로 나눠서 입력, 해당하는 것만 채우면 돼요)</label>
-        <div class="row2" style="margin-bottom:10px;">
-          <div><label style="font-weight:400; font-size:14px;">이동비</label><input type="number" id="l-cost-transport" placeholder="원"></div>
-          <div><label style="font-weight:400; font-size:14px;">숙박비</label><input type="number" id="l-cost-lodging" placeholder="원"></div>
-        </div>
-        <div class="row2" style="margin-bottom:10px;">
-          <div><label style="font-weight:400; font-size:14px;">식대</label><input type="number" id="l-cost-food" placeholder="원"></div>
-          <div><label style="font-weight:400; font-size:14px;">커피</label><input type="number" id="l-cost-coffee" placeholder="원"></div>
-        </div>
-        <div><label style="font-weight:400; font-size:14px;">기타</label><input type="number" id="l-cost-etc" placeholder="원"></div>
+        <label>기타 지출 (선택)</label>
+        <input type="number" id="l-cost-etc" placeholder="원">
         <div class="hint" style="margin-top:8px;">오늘 지출 합계: <b id="l-spend-total">0원</b></div>
       </div>
       <div class="field"><label>메모</label><textarea id="l-memo" placeholder="오늘 있었던 일, 볼거리, 팁 등을 적어보세요"></textarea></div>
@@ -315,6 +329,7 @@
   <div class="view" id="tab-list">
     <div class="filters">
       <select id="filter-year"><option value="">전체 연도</option></select>
+      <select id="filter-author" style="display:none;"><option value="">전체 작성자</option></select>
       <input type="text" id="filter-search" placeholder="여행 제목, 장소 검색">
     </div>
     <div id="list-container"><div class="loading">불러오는 중…</div></div>
@@ -357,6 +372,13 @@
 
   <!-- 설정 -->
   <div class="view" id="tab-settings">
+    <div class="card" id="current-member-row" style="display:flex; flex-direction:row; justify-content:space-between; align-items:center;">
+      <div>
+        <div class="section-label" style="margin-bottom:2px;" id="current-member-label">그룹 기능</div>
+        <div id="current-member-name" style="font-weight:600;">개인 모드로 사용 중이에요</div>
+      </div>
+      <button type="button" class="btn-sm" id="current-member-action-btn" onclick="handleMemberActionClick()">그룹 로그인 / 만들기</button>
+    </div>
     <div class="card">
       <div class="section-label">화면 테마</div>
       <div class="theme-toggle" id="themeToggle">
@@ -408,12 +430,59 @@
   <img id="photo-lightbox-img" src="" onclick="event.stopPropagation()">
 </div>
 
+<div class="login-gate" id="login-gate" style="display:none;">
+  <div class="login-gate-card">
+    <div class="eyebrow" style="text-align:center; margin-bottom:6px;">TRAVEL LOG</div>
+    <h2 id="login-gate-title" style="text-align:center; margin-bottom:18px;">그룹 로그인</h2>
+    <div class="field">
+      <label>그룹ID</label>
+      <input type="text" id="login-group-id" placeholder="그룹ID를 입력하세요">
+    </div>
+    <div class="field">
+      <label>멤버명</label>
+      <input type="text" id="login-member-text" placeholder="이름을 입력하세요">
+    </div>
+    <button type="button" class="btn btn-primary" id="login-submit-btn" onclick="attemptLogin()">로그인</button>
+
+    <div style="text-align:center; margin-top:14px;">
+      <a href="#" id="toggle-group-register-link" onclick="event.preventDefault(); toggleGroupRegisterMode();" style="font-size:14px; color:var(--navy); text-decoration:underline;">이 그룹ID가 없나요? 새로 만들기</a>
+    </div>
+
+    <div id="group-register-wrap" style="display:none; margin-top:14px; padding-top:14px; border-top:1px dashed var(--line);">
+      <div class="field">
+        <label>그룹명</label>
+        <input type="text" id="reg-group-name" placeholder="예: 홍씨네 가족여행">
+      </div>
+      <div class="field">
+        <label>추가 멤버 (선택, 콤마로 구분)</label>
+        <input type="text" id="reg-extra-members" placeholder="예: 엄마, 첫째">
+        <div class="hint" style="margin-top:4px;">위에 입력한 그룹ID·멤버명이 첫 멤버로 등록되고, 바로 그 이름으로 로그인돼요.</div>
+      </div>
+      <button type="button" class="btn btn-primary" onclick="registerGroupAndLogin()">그룹 만들고 시작하기</button>
+    </div>
+
+    <div class="hint" id="login-gate-hint" style="margin-top:10px; text-align:center;"></div>
+    <div style="text-align:center; margin-top:10px;">
+      <a href="#" id="login-gate-close-btn" onclick="event.preventDefault(); closeLoginGateVoluntary();" style="display:none; font-size:13px; color:var(--sub);">닫기</a>
+    </div>
+  </div>
+</div>
+
 <script>
-  const APP_VERSION = '2.17.1';
+  const APP_VERSION = '2.21.0';
   const STORAGE_KEY_URL = 'travellog_api_url';
   const THEME_KEY = 'travellog_theme';
   const DEFAULT_API_URL = ''; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
   let CONFIG_API_URL = ''; // config.json에서 읽어온 공용 API 주소 (전체 기기 공통)
+
+  // 그룹/멤버 로그인 - 그룹 목록은 config.json이 아니라 서버(구글시트의 Groups 탭)에서 관리됨
+  const GROUP_ID_KEY = 'travellog_group_id';
+  const GROUP_NAME_KEY = 'travellog_group_name';
+  const MEMBER_STORAGE_KEY = 'travellog_member';
+  let CURRENT_GROUP_ID = '';
+  let CURRENT_GROUP_NAME = '';
+  let CURRENT_MEMBER = '';
+  let MULTI_TENANT = false; // 서버에 그룹이 하나라도 등록돼 있으면 true (없으면 로그인 없이 개인용으로 동작)
 
   let TRIPS = [];
   let LEGS = [];
@@ -533,6 +602,138 @@
     if (btn) applyTheme(btn.dataset.themeChoice);
   });
 
+  // ---------- 그룹/멤버 로그인 게이트 ----------
+  // config.json에 groupId가 설정돼 있지 않으면(기존 사용자들처럼 이 기능을 안 쓰는 경우) 게이트 자체를 건너뜀
+  // 앱 시작 시 서버에 그룹이 하나라도 등록돼 있는지 확인하고, 등록돼 있으면 로그인을 요구함
+  async function checkLoginGate(){
+    const url = apiUrlValue();
+    if (!url) return; // API 주소가 아직 없으면 판단을 미루고 넘어감 (기존 오류 안내가 따로 뜸)
+    try{
+      const res = await fetch(url, { method: 'GET' });
+      const json = await res.json();
+      if (!json.ok) return;
+      MULTI_TENANT = !!json.multiTenant;
+      if (!MULTI_TENANT) return; // 그룹을 안 쓰는(개인용) 배포는 로그인 없이 그대로 진행
+
+      const savedGroupId = localStorage.getItem(GROUP_ID_KEY);
+      const savedMember = localStorage.getItem(MEMBER_STORAGE_KEY);
+      if (savedGroupId && savedMember){
+        CURRENT_GROUP_ID = savedGroupId;
+        CURRENT_GROUP_NAME = localStorage.getItem(GROUP_NAME_KEY) || '';
+        CURRENT_MEMBER = savedMember;
+        updateCurrentMemberDisplay();
+        return;
+      }
+      showLoginGate();
+    }catch(err){
+      // 네트워크 문제 등으로 확인이 안 되면 게이트 없이 진행 (다른 오류 안내가 따로 뜸)
+    }
+  }
+  function showLoginGate(){
+    document.getElementById('login-gate-title').textContent = '그룹 로그인';
+    document.getElementById('login-group-id').value = '';
+    document.getElementById('login-member-text').value = '';
+    document.getElementById('reg-group-name').value = '';
+    document.getElementById('reg-extra-members').value = '';
+    document.getElementById('login-gate-hint').textContent = '';
+    document.getElementById('group-register-wrap').style.display = 'none';
+    document.getElementById('toggle-group-register-link').textContent = '이 그룹ID가 없나요? 새로 만들기';
+    document.getElementById('login-submit-btn').style.display = '';
+    // 그룹을 아예 안 쓰는 상태(개인 모드)에서 설정 탭으로 직접 연 경우에만 "닫기"를 보여줌.
+    // 이미 그룹이 있어서 자동으로 뜬 로그인은 반드시 로그인해야 하므로 닫기를 숨김.
+    document.getElementById('login-gate-close-btn').style.display = MULTI_TENANT ? 'none' : 'inline';
+    document.getElementById('login-gate').style.display = 'flex';
+  }
+  function closeLoginGateVoluntary(){
+    document.getElementById('login-gate').style.display = 'none';
+  }
+  function toggleGroupRegisterMode(){
+    const wrap = document.getElementById('group-register-wrap');
+    const showing = wrap.style.display !== 'none';
+    wrap.style.display = showing ? 'none' : 'block';
+    document.getElementById('toggle-group-register-link').textContent = showing ? '이 그룹ID가 없나요? 새로 만들기' : '취소하고 로그인으로 돌아가기';
+    document.getElementById('login-submit-btn').style.display = showing ? '' : 'none';
+    document.getElementById('login-gate-hint').textContent = '';
+  }
+  async function attemptLogin(){
+    const inputGroupId = document.getElementById('login-group-id').value.trim();
+    const member = document.getElementById('login-member-text').value.trim();
+    const hintEl = document.getElementById('login-gate-hint');
+    if (!inputGroupId){ hintEl.textContent = '그룹ID를 입력해주세요'; return; }
+    if (!member){ hintEl.textContent = '멤버명을 입력해주세요'; return; }
+
+    hintEl.textContent = '확인 중…';
+    try{
+      const res = await apiPost('group_login', { groupId: inputGroupId, memberName: member });
+      applyLoginSuccess_(res.groupId, res.groupName, member);
+      await loadAll(); // 로그인 후 이 그룹의 데이터로 새로고침
+    }catch(err){
+      hintEl.textContent = err.message;
+    }
+  }
+  async function registerGroupAndLogin(){
+    const groupId = document.getElementById('login-group-id').value.trim();
+    const member = document.getElementById('login-member-text').value.trim();
+    const groupName = document.getElementById('reg-group-name').value.trim();
+    const extraMembers = document.getElementById('reg-extra-members').value.trim();
+    const hintEl = document.getElementById('login-gate-hint');
+    if (!groupId){ hintEl.textContent = '그룹ID를 입력해주세요'; return; }
+    if (!member){ hintEl.textContent = '멤버명(본인 이름)을 입력해주세요'; return; }
+    if (!groupName){ hintEl.textContent = '그룹명을 입력해주세요'; return; }
+
+    const membersList = [member].concat(
+      extraMembers ? extraMembers.split(',').map(s => s.trim()).filter(Boolean) : []
+    );
+    hintEl.textContent = '만드는 중…';
+    try{
+      const res = await apiPost('group_register', { groupId: groupId, groupName: groupName, members: membersList.join(',') });
+      applyLoginSuccess_(res.groupId, res.groupName, member);
+      showToast('그룹이 만들어졌어요 ✓');
+      await loadAll();
+    }catch(err){
+      hintEl.textContent = err.message;
+    }
+  }
+  function applyLoginSuccess_(groupId, groupName, member){
+    CURRENT_GROUP_ID = groupId;
+    CURRENT_GROUP_NAME = groupName || '';
+    CURRENT_MEMBER = member;
+    MULTI_TENANT = true;
+    localStorage.setItem(GROUP_ID_KEY, CURRENT_GROUP_ID);
+    localStorage.setItem(GROUP_NAME_KEY, CURRENT_GROUP_NAME);
+    localStorage.setItem(MEMBER_STORAGE_KEY, CURRENT_MEMBER);
+    updateCurrentMemberDisplay();
+    document.getElementById('login-gate').style.display = 'none';
+  }
+  function handleMemberActionClick(){
+    if (CURRENT_MEMBER) switchMember();
+    else showLoginGate();
+  }
+  function switchMember(){
+    localStorage.removeItem(GROUP_ID_KEY);
+    localStorage.removeItem(GROUP_NAME_KEY);
+    localStorage.removeItem(MEMBER_STORAGE_KEY);
+    CURRENT_GROUP_ID = '';
+    CURRENT_GROUP_NAME = '';
+    CURRENT_MEMBER = '';
+    updateCurrentMemberDisplay();
+    showLoginGate();
+  }
+  function updateCurrentMemberDisplay(){
+    const row = document.getElementById('current-member-row');
+    if (!row) return;
+    row.style.display = 'flex';
+    if (CURRENT_MEMBER){
+      document.getElementById('current-member-name').textContent = CURRENT_MEMBER + (CURRENT_GROUP_NAME ? ' · ' + CURRENT_GROUP_NAME : '');
+      document.getElementById('current-member-label').textContent = '현재 로그인';
+      document.getElementById('current-member-action-btn').textContent = '다른 멤버로 전환';
+    } else {
+      document.getElementById('current-member-name').textContent = '개인 모드로 사용 중이에요';
+      document.getElementById('current-member-label').textContent = '그룹 기능';
+      document.getElementById('current-member-action-btn').textContent = '그룹 로그인 / 만들기';
+    }
+  }
+
   // ---------- 탭 전환 ----------
   const TRIP_GATED_TABS = ['list', 'map', 'photos', 'stats'];
   const VISUALLY_LOCKED_TABS = ['add', 'list', 'map', 'photos', 'stats']; // '입력'은 클릭은 계속 되지만 다른 탭과 톤을 맞춰 흐리게 표시
@@ -565,7 +766,9 @@
     const url = apiUrlValue();
     if (!url) throw new Error('설정 탭에서 API 주소를 먼저 입력해주세요.');
     const sep = url.indexOf('?') > -1 ? '&' : '?';
-    const res = await fetch(url + sep + 'action=' + action, { method: 'GET' });
+    let full = url + sep + 'action=' + action;
+    if (CURRENT_GROUP_ID) full += '&groupId=' + encodeURIComponent(CURRENT_GROUP_ID);
+    const res = await fetch(full, { method: 'GET' });
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || '조회 실패');
     return json;
@@ -586,10 +789,12 @@
   async function apiPost(type, data, photos){
     const url = apiUrlValue();
     if (!url) throw new Error('설정 탭에서 API 주소를 먼저 입력해주세요.');
+    const mergedData = Object.assign({}, data || {});
+    if (CURRENT_GROUP_ID && mergedData.groupId === undefined) mergedData.groupId = CURRENT_GROUP_ID;
     const res = await fetchWithRetry_(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ type: type, data: data || {}, photos: photos || [] })
+      body: JSON.stringify({ type: type, data: mergedData, photos: photos || [] })
     });
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || '요청 실패');
@@ -783,6 +988,10 @@
     document.getElementById('leg-form').style.display = 'none';
     document.getElementById('leg-timeline').innerHTML = '';
     document.getElementById('trip-form').style.display = 'block';
+    document.getElementById('t-id').value = '';
+    document.getElementById('trip-form-label').textContent = '새 여행 만들기';
+    document.getElementById('btn-save-trip').textContent = '여행 만들기';
+    document.getElementById('btn-cancel-trip-edit').style.display = 'none';
     ['t-title','t-companions','t-budget','t-memo'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('t-start').value = '';
     document.getElementById('t-end').value = '';
@@ -793,27 +1002,67 @@
     const title = document.getElementById('t-title').value.trim();
     const start = document.getElementById('t-start').value;
     if (!title || !start){ showToast('여행 제목과 시작일은 필수예요', true); return; }
+    const editingId = document.getElementById('t-id').value;
     const btn = this;
-    btn.disabled = true; btn.textContent = '만드는 중…';
+    btn.disabled = true; btn.textContent = editingId ? '저장 중…' : '만드는 중…';
     try{
       const data = {
+        id: editingId,
         title: title, startDate: start,
         endDate: document.getElementById('t-end').value,
         companions: document.getElementById('t-companions').value.trim(),
         budget: document.getElementById('t-budget').value,
         rating: document.getElementById('t-rating').value,
-        memo: document.getElementById('t-memo').value.trim()
+        memo: document.getElementById('t-memo').value.trim(),
+        author: CURRENT_MEMBER
       };
-      const res = await apiPost('trip_add', data);
-      showToast('여행이 만들어졌어요. 이제 매일 기록을 남겨보세요 ✓');
-      await loadAll();
-      SELECTED_TRIP_ID = res.id;
-      document.getElementById('trip-select').value = res.id;
-      document.getElementById('trip-form').style.display = 'none';
-      renderSelectedTrip();
+      if (editingId){
+        await apiPost('trip_update', data);
+        showToast('여행 정보가 수정됐어요 ✓');
+        await loadAll();
+        document.getElementById('trip-select').value = editingId;
+        cancelTripEdit();
+        renderSelectedTrip();
+      } else {
+        const res = await apiPost('trip_add', data);
+        showToast('여행이 만들어졌어요. 이제 매일 기록을 남겨보세요 ✓');
+        await loadAll();
+        SELECTED_TRIP_ID = res.id;
+        document.getElementById('trip-select').value = res.id;
+        document.getElementById('trip-form').style.display = 'none';
+        renderSelectedTrip();
+      }
     }catch(err){ showToast('오류: ' + err.message, true); }
-    finally{ btn.disabled = false; btn.textContent = '여행 만들기'; }
+    finally{ btn.disabled = false; btn.textContent = editingId ? '여행 정보 저장' : '여행 만들기'; }
   });
+
+  function editTripInfo(){
+    const trip = TRIPS.find(t => t.id === SELECTED_TRIP_ID);
+    if (!trip) return;
+    document.getElementById('t-id').value = trip.id;
+    document.getElementById('t-title').value = trip.title || '';
+    document.getElementById('t-start').value = trip.startDate || '';
+    document.getElementById('t-end').value = trip.endDate || '';
+    document.getElementById('t-companions').value = trip.companions || '';
+    document.getElementById('t-budget').value = trip.budget || '';
+    document.getElementById('t-rating').value = trip.rating || '5';
+    document.getElementById('t-memo').value = trip.memo || '';
+    document.getElementById('trip-form-label').textContent = '여행 정보 수정';
+    document.getElementById('btn-save-trip').textContent = '여행 정보 저장';
+    document.getElementById('btn-cancel-trip-edit').style.display = 'inline-flex';
+    document.getElementById('trip-form').style.display = 'block';
+    document.getElementById('trip-banner').style.display = 'none';
+    document.getElementById('leg-form').style.display = 'none';
+    window.scrollTo(0, 0);
+  }
+  function cancelTripEdit(){
+    document.getElementById('t-id').value = '';
+    document.getElementById('trip-form-label').textContent = '새 여행 만들기';
+    document.getElementById('btn-save-trip').textContent = '여행 만들기';
+    document.getElementById('btn-cancel-trip-edit').style.display = 'none';
+    document.getElementById('trip-form').style.display = 'none';
+    renderSelectedTrip();
+  }
 
   function renderSelectedTrip(){
     const banner = document.getElementById('trip-banner');
@@ -825,9 +1074,13 @@
     if (!trip){ banner.style.display='none'; legForm.style.display='none'; timeline.innerHTML=''; return; }
 
     banner.style.display = 'block';
-    banner.innerHTML = '<div class="trip-banner"><div class="t-title">'+escapeHtml(trip.title)+'</div>' +
-      '<div class="t-dates">'+(trip.startDate||'')+(trip.endDate ? ' → ' + trip.endDate : '')+
-      (trip.companions ? ' · ' + escapeHtml(trip.companions) : '')+'</div></div>';
+    banner.innerHTML = '<div class="trip-banner">' +
+      '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">' +
+        '<div><div class="t-title">'+escapeHtml(trip.title)+'</div>' +
+        '<div class="t-dates">'+(trip.startDate||'')+(trip.endDate ? ' → ' + trip.endDate : '')+
+        (trip.companions ? ' · ' + escapeHtml(trip.companions) : '')+'</div></div>' +
+        '<button type="button" onclick="editTripInfo()" style="flex-shrink:0; background:rgba(255,255,255,0.15); color:#fff; border:1px solid rgba(255,255,255,0.5); border-radius:14px; padding:6px 12px; font-size:13px; cursor:pointer;">여행 정보 수정</button>' +
+      '</div></div>';
 
     legForm.style.display = 'block';
     clearLegForm();
@@ -1001,7 +1254,8 @@
         costCoffee: costCoffee, costEtc: costEtc,
         actualSpend: totalSpend,
         memo: document.getElementById('l-memo').value.trim(),
-        photoUrl: EXISTING_PHOTO_URLS.join(',')
+        photoUrl: EXISTING_PHOTO_URLS.join(','),
+        author: CURRENT_MEMBER
       };
       const type = data.id ? 'leg_update' : 'leg_add';
       const res = await apiPost(type, data, []);
@@ -1088,12 +1342,15 @@
 
   // ---------- 목록 ----------
   document.getElementById('filter-year').addEventListener('change', renderList);
+  document.getElementById('filter-author').addEventListener('change', renderList);
   document.getElementById('filter-search').addEventListener('input', renderList);
 
   function renderList(){
     const container = document.getElementById('list-container');
     const yearSel = document.getElementById('filter-year');
     const currentYear = yearSel.value;
+    const authorSel = document.getElementById('filter-author');
+    const currentAuthor = authorSel.value;
     const search = document.getElementById('filter-search').value.toLowerCase();
 
     const years = Array.from(new Set(TRIPS.map(t => (t.startDate||'').substring(0,4)).filter(Boolean))).sort().reverse();
@@ -1101,8 +1358,18 @@
       years.forEach(y => { const opt = document.createElement('option'); opt.value = y; opt.textContent = y+'년'; yearSel.appendChild(opt); });
     }
 
+    // 그룹/멤버 로그인 기능을 쓰는 경우에만 작성자 필터를 보여줌
+    if (MULTI_TENANT){
+      authorSel.style.display = '';
+      const authors = Array.from(new Set(TRIPS.map(t => t.author).filter(Boolean))).sort();
+      if (authorSel.options.length <= 1){
+        authors.forEach(a => { const opt = document.createElement('option'); opt.value = a; opt.textContent = a; authorSel.appendChild(opt); });
+      }
+    }
+
     let trips = TRIPS.slice();
     if (currentYear) trips = trips.filter(t => (t.startDate||'').startsWith(currentYear));
+    if (currentAuthor) trips = trips.filter(t => t.author === currentAuthor);
     if (search) trips = trips.filter(t => {
       const legsText = LEGS.filter(l => l.tripId === t.id).map(l => l.fromPlace+' '+l.toPlace+' '+l.memo).join(' ').toLowerCase();
       return (t.title||'').toLowerCase().includes(search) || legsText.includes(search);
@@ -1581,6 +1848,7 @@
     await loadConfigJson();
     document.getElementById('apiUrl').value = apiUrlValue();
     updateNavLockState();
+    checkLoginGate();
     refreshStatus();
     loadAll();
   });
