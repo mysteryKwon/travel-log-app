@@ -360,6 +360,10 @@
   <!-- 통계 -->
   <div class="view" id="tab-stats">
     <h3 style="margin-bottom:14px;">여행 통계</h3>
+    <div class="theme-toggle scope-toggle" style="margin-bottom:12px;">
+      <button type="button" data-scope="trip" class="active" onclick="setViewScope(false)">이 여행만</button>
+      <button type="button" data-scope="all" onclick="setViewScope(true)">전체 보기</button>
+    </div>
     <div class="stat-grid" id="stat-grid"><div class="loading">불러오는 중…</div></div>
     <div class="theme-toggle" id="stat-period-toggle" style="margin-bottom:14px;">
       <button type="button" data-period="year" class="active">연도별</button>
@@ -473,7 +477,7 @@
 </div>
 
 <script>
-  const APP_VERSION = '2.22.0';
+  const APP_VERSION = '2.23.1';
   const STORAGE_KEY_URL = 'travellog_api_url';
   const THEME_KEY = 'travellog_theme';
   const DEFAULT_API_URL = ''; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
@@ -491,6 +495,15 @@
   let TRIPS = [];
   let LEGS = [];
   let SELECTED_TRIP_ID = '';
+  let VIEW_SCOPE_ALL = false; // false: 선택한 여행만 보기(기본) / true: 전체 여행 합산 보기 (통계 탭 전용)
+  function tripOnlyLegs(){ return LEGS.filter(l => l.tripId === SELECTED_TRIP_ID); } // 지도·사진 탭: 항상 선택한 여행만
+  function scopedLegs(){ return VIEW_SCOPE_ALL ? LEGS : LEGS.filter(l => l.tripId === SELECTED_TRIP_ID); } // 통계 탭: 토글에 따름
+  function scopedTrips(){ return VIEW_SCOPE_ALL ? TRIPS : TRIPS.filter(t => t.id === SELECTED_TRIP_ID); }
+  function setViewScope(all){
+    VIEW_SCOPE_ALL = all;
+    document.querySelectorAll('.scope-toggle button').forEach(b => b.classList.toggle('active', (b.dataset.scope === 'all') === all));
+    if (document.getElementById('tab-stats').classList.contains('active')) renderStats();
+  }
   let PENDING_PHOTOS = [];
   let EXISTING_PHOTO_URLS = [];
 
@@ -1492,13 +1505,17 @@
       return;
     }
 
-    const pts = LEGS.filter(l => l.lat && l.lng && !isNaN(parseFloat(l.lat)) && !isNaN(parseFloat(l.lng)));
+    const scopeLegsList = tripOnlyLegs();
+    const pts = scopeLegsList.filter(l => l.lat && l.lng && !isNaN(parseFloat(l.lat)) && !isNaN(parseFloat(l.lng)));
 
     if (!leafletMapInstance){
       leafletMapInstance = L.map('leaflet-map').setView([36.5, 127.8], 7); // 기본값: 대한민국 중심
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      // OSM 기본 타일 서버가 일부 네트워크(회사망/공용 와이파이 등)에서 차단·제한되는 경우가 있어,
+      // 더 안정적인 무료 타일 서버(CARTO)를 사용 (지도 데이터 자체는 여전히 OpenStreetMap 기반)
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        subdomains: 'abcd',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
       }).addTo(leafletMapInstance);
       leafletMarkersLayer = L.layerGroup().addTo(leafletMapInstance);
     } else {
@@ -1521,7 +1538,7 @@
       leafletMapInstance.fitBounds(latlngs, { padding: [30, 30] });
     }
 
-    const skipped = LEGS.length - pts.length;
+    const skipped = scopeLegsList.length - pts.length;
     document.getElementById('map-legend').textContent = pts.length + '개 지점 표시 중' + (skipped>0 ? ' (위치를 찾지 못한 '+skipped+'건 제외)' : '');
   }
 
@@ -1600,7 +1617,7 @@
 
   function renderPhotoGallery(){
     const byPlace = {};
-    LEGS.forEach(function(l){
+    tripOnlyLegs().forEach(function(l){
       const urls = (l.photoUrl || '').split(',').map(s => s.trim()).filter(Boolean);
       if (urls.length === 0) return;
       const place = l.toPlace || l.fromPlace || '장소 미상';
@@ -1729,7 +1746,7 @@
 
   function renderDayBreakdown(){
     const byDate = {};
-    LEGS.forEach(function(l){
+    scopedLegs().forEach(function(l){
       if (!l.date) return;
       if (!byDate[l.date]) byDate[l.date] = { legs: [], places: new Set() };
       byDate[l.date].legs.push(l);
@@ -1759,7 +1776,7 @@
   // 월별 탭 = 방문지(도착지) 기준으로 집계, 일별과 같은 항목 리스트 형식으로 표시
   function renderPlaceBreakdown(){
     const byPlace = {};
-    LEGS.forEach(function(l){
+    scopedLegs().forEach(function(l){
       if (!l.toPlace) return;
       if (!byPlace[l.toPlace]) byPlace[l.toPlace] = { legs: [], lastDate: '' };
       byPlace[l.toPlace].legs.push(l);
@@ -1790,7 +1807,7 @@
     const groups = {};
     order.forEach(k => groups[k] = { spend: 0, count: 0 });
 
-    LEGS.forEach(function(l){
+    scopedLegs().forEach(function(l){
       buildLegItemLines(l).forEach(function(item){
         if (!groups[item.label]) groups[item.label] = { spend: 0, count: 0 };
         groups[item.label].spend += item.amount;
@@ -1825,7 +1842,7 @@
     if (mode === 'category'){ renderCategoryBreakdown(); return; }
 
     const groups = {};
-    LEGS.forEach(function(l){
+    scopedLegs().forEach(function(l){
       if (!l.date) return;
       const key = periodKeyOf(l.date, mode);
       if (!groups[key]) groups[key] = { spend: 0, count: 0, places: new Set() };
@@ -1857,10 +1874,10 @@
   }
 
   function renderStats(){
-    const totalTrips = TRIPS.length;
+    const totalTrips = scopedTrips().length;
     const places = new Set();
     let totalSpend = 0;
-    LEGS.forEach(l => { if (l.toPlace) places.add(l.toPlace); totalSpend += legTotalSpend(l); });
+    scopedLegs().forEach(l => { if (l.toPlace) places.add(l.toPlace); totalSpend += legTotalSpend(l); });
 
     document.getElementById('stat-grid').innerHTML =
       '<div class="stat-box"><div class="num">'+totalTrips+'</div><div class="label">총 여행 횟수</div></div>' +
