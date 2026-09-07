@@ -23,7 +23,7 @@
  */
 
 // ===== 설정 =====
-const SCRIPT_VERSION = '2.25.0'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
+const SCRIPT_VERSION = '2.25.2'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
 
 const PHOTO_FOLDER_NAME = '여행이력_사진';
 const TRIPS_SHEET = 'Trips';
@@ -465,7 +465,7 @@ function updateLeg_(data, photos) {
   for (let i = 0; i < rows.length; i++) {
     if (rows[i][0] === data.id) {
       assertGroupMatch_(rows[i][1], data.groupId);
-      sheet.getRange(i + 2, 4, 1, 20).setValues([[
+      sheet.getRange(i + 2, 4, 1, 21).setValues([[
         data.date || '', data.departTime || '', data.arriveTime || '',
         data.fromPlace || '', data.toPlace || '', data.transport || '',
         data.lodgingType || '', data.lodgingName || '',
