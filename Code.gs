@@ -23,7 +23,7 @@
  */
 
 // ===== 설정 =====
-const SCRIPT_VERSION = '2.25.2'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
+const SCRIPT_VERSION = '2.25.3'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
 
 const PHOTO_FOLDER_NAME = '여행이력_사진';
 const TRIPS_SHEET = 'Trips';
@@ -72,6 +72,7 @@ function doPost(e) {
 
     if (type === 'migrate') return jsonOut(migrateAll_());
     if (type === 'claim_ungrouped') return jsonOut(claimUngroupedData_(data.groupId));
+    if (type === 'regeocode_missing') return jsonOut(regeocodeMissing_());
 
     if (type === 'photo_upload') return jsonOut(uploadSinglePhoto_(data.name, data.mime, data.base64));
 
@@ -141,17 +142,88 @@ function formatTime_(value) {
   return value;
 }
 
+/**
+ * 지오코딩 - 장소명을 위도/경도로 변환
+ * -------------------------------------------------
+ * 1) 국내 여행 앱이므로 지역을 '대한민국(KR)'으로 지정해 검색 정확도를 높임
+ * 2) 1차 시도가 실패하면 장소명 뒤에 "대한민국"을 붙여 한 번 더 시도
+ *    (예: "홍도"만으로는 못 찾아도 "홍도 대한민국"으로는 찾는 경우가 있음)
+ * 3) 그래도 실패하면 이유를 함께 반환해서 호출부에서 원인을 남길 수 있게 함
+ *    (예전에는 여기서 에러를 그냥 삼켜서 왜 좌표가 안 채워지는지 알 방법이 없었음)
+ */
 function geocodeLocation_(place) {
-  if (!place) return { lat: '', lng: '' };
-  try {
-    const geocoder = Maps.newGeocoder();
-    const result = geocoder.geocode(place);
-    if (result.status === 'OK' && result.results && result.results.length > 0) {
-      const loc = result.results[0].geometry.location;
-      return { lat: loc.lat, lng: loc.lng };
+  if (!place) return { lat: '', lng: '', reason: 'empty' };
+  const geocoder = Maps.newGeocoder().setRegion('KR');
+  const attempt = function (query) {
+    try {
+      const result = geocoder.geocode(query);
+      if (result.status === 'OK' && result.results && result.results.length > 0) {
+        const loc = result.results[0].geometry.location;
+        return { lat: loc.lat, lng: loc.lng };
+      }
+      return { error: result.status || '결과 없음' };
+    } catch (e) {
+      return { error: e.message };
     }
-  } catch (e) { /* 좌표 없이 저장 */ }
-  return { lat: '', lng: '' };
+  };
+
+  let r = attempt(place);
+  if (r.lat !== undefined) return r;
+
+  const firstError = r.error;
+  if (place.indexOf('대한민국') === -1) {
+    r = attempt(place + ' 대한민국');
+    if (r.lat !== undefined) return r;
+  }
+
+  return { lat: '', lng: '', reason: firstError || r.error || '알 수 없음' };
+}
+
+/**
+ * 위도/경도가 비어있는 기존 일자기록들만 골라 다시 지오코딩을 시도함
+ * (설정 탭 "위치 좌표 없는 기록 다시 찾기" 버튼에서 호출)
+ * - 이미 좌표가 있는 행은 건드리지 않음
+ * - 실패한 행은 실패 사유를 모아서 반환 (Geocoder 서비스 미설정, 장소명 오탈자 등 원인 파악용)
+ */
+function regeocodeMissing_() {
+  const sheet = getSheet_(LEGS_SHEET, LEG_HEADERS);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { ok: true, updated: 0, stillMissing: 0, total: 0, failures: [] };
+
+  const FROM_COL = LEG_HEADERS.indexOf('출발지') + 1;
+  const TO_COL = LEG_HEADERS.indexOf('도착지') + 1;
+  const LAT_COL = LEG_HEADERS.indexOf('위도') + 1;
+  const LNG_COL = LEG_HEADERS.indexOf('경도') + 1;
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, LEG_HEADERS.length).getValues();
+  let updated = 0;
+  let stillMissing = 0;
+  let total = 0;
+  const failures = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const hasLat = row[LAT_COL - 1] !== '' && row[LAT_COL - 1] !== null && row[LAT_COL - 1] !== undefined;
+    const hasLng = row[LNG_COL - 1] !== '' && row[LNG_COL - 1] !== null && row[LNG_COL - 1] !== undefined;
+    if (hasLat && hasLng) continue; // 이미 좌표가 있으면 건너뜀
+
+    const place = row[TO_COL - 1] || row[FROM_COL - 1];
+    if (!place) continue; // 장소명 자체가 없는 행(머무는 곳만 기록 등)은 대상에서 제외
+
+    total++;
+    const geo = geocodeLocation_(place);
+    if (geo.lat !== '' && geo.lng !== '') {
+      sheet.getRange(i + 2, LAT_COL).setValue(geo.lat);
+      sheet.getRange(i + 2, LNG_COL).setValue(geo.lng);
+      updated++;
+    } else {
+      stillMissing++;
+      failures.push({ place: place, reason: geo.reason || '알 수 없음' });
+    }
+    Utilities.sleep(150); // Geocoder 호출 사이 짧게 대기 (연속 호출 시 일시적 오류 방지)
+  }
+
+  return { ok: true, updated: updated, stillMissing: stillMissing, total: total, failures: failures.slice(0, 10), version: SCRIPT_VERSION };
 }
 
 // ===== 그룹(다중 사용자) =====
