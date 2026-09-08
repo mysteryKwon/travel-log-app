@@ -387,8 +387,6 @@
         </div>
         <button type="button" class="btn-sm" id="current-member-action-btn" onclick="handleMemberActionClick()">그룹 로그인 / 만들기</button>
       </div>
-      <button type="button" class="btn-sm" id="btn-claim-ungrouped" style="display:none; width:100%; margin-top:12px;" onclick="claimUngroupedData()">예전(그룹 지정 전) 기록을 이 그룹에 연결하기</button>
-      <div class="hint" id="claim-ungrouped-result" style="margin-top:8px; display:none;"></div>
     </div>
     <div class="card">
       <div class="section-label">화면 테마</div>
@@ -405,18 +403,6 @@
       <div class="field"><label>웹앱 URL (이 기기 전용 재정의, 선택)</label><input type="text" id="apiUrl" placeholder="https://script.google.com/macros/s/xxxx/exec"></div>
       <button type="button" class="btn-sm" style="width:100%;margin-bottom:8px;" onclick="saveApiUrl()">저장 및 연결 확인</button>
       <button type="button" class="btn-sm" style="width:100%;" onclick="clearApiUrlOverride()">이 기기 재정의 지우고 config.json 값 사용</button>
-    </div>
-    <div class="card">
-      <div class="section-label">데이터 구조 점검/복구</div>
-      <div class="hint" style="margin-bottom:10px;">앱 업데이트로 새 항목(음식, 출발/도착 시간 등)이 추가되면서, 예전에 저장한 기록의 값이 엉뚱한 칸에 보일 수 있어요. 아래 버튼을 누르면 구글시트에 저장된 예전 기록을 실제 항목 이름에 맞춰 자동으로 다시 정렬해줍니다. 이미 정상이면 아무 것도 바뀌지 않으니 안심하고 눌러도 돼요.</div>
-      <button type="button" class="btn-sm" style="width:100%;" onclick="runMigration()" id="btn-migrate">예전 기록 정렬 점검하기</button>
-      <div class="hint" id="migrateResult" style="margin-top:8px;"></div>
-    </div>
-    <div class="card">
-      <div class="section-label">지도 위치 좌표 점검</div>
-      <div class="hint" style="margin-bottom:10px;">지도 탭에서 지점이 안 보이거나 "위치를 찾지 못한 N건 제외"로 나온다면, 그 기록들은 저장될 때 좌표(위도/경도) 변환이 실패한 경우예요. 아래 버튼을 누르면 좌표가 없는 기록만 골라 다시 찾아서 채워줍니다. 이미 좌표가 있는 기록은 건드리지 않아요.</div>
-      <button type="button" class="btn-sm" style="width:100%;" onclick="reGeocodeMissing()" id="btn-regeocode">위치 좌표 없는 기록 다시 찾기</button>
-      <div class="hint" id="regeocodeResult" style="margin-top:8px;"></div>
     </div>
     <div class="card">
       <div class="section-label">앱 정보 및 버전</div>
@@ -754,13 +740,10 @@
     const headerRow = document.getElementById('header-login-info');
     if (!row) return;
     row.style.display = 'flex';
-    const claimBtn = document.getElementById('btn-claim-ungrouped');
-    document.getElementById('claim-ungrouped-result').style.display = 'none';
     if (CURRENT_MEMBER){
       document.getElementById('current-member-name').textContent = CURRENT_MEMBER + (CURRENT_GROUP_NAME ? ' · ' + CURRENT_GROUP_NAME : '');
       document.getElementById('current-member-label').textContent = '현재 로그인';
       document.getElementById('current-member-action-btn').textContent = '다른 멤버로 전환';
-      claimBtn.style.display = 'block';
       if (headerRow){
         headerRow.style.display = 'flex';
         document.getElementById('header-login-text').textContent = CURRENT_MEMBER + (CURRENT_GROUP_NAME ? ' · ' + CURRENT_GROUP_NAME : '');
@@ -769,31 +752,7 @@
       document.getElementById('current-member-name').textContent = '개인 모드로 사용 중이에요';
       document.getElementById('current-member-label').textContent = '그룹 기능';
       document.getElementById('current-member-action-btn').textContent = '그룹 로그인 / 만들기';
-      claimBtn.style.display = 'none';
       if (headerRow) headerRow.style.display = 'none';
-    }
-  }
-
-  async function claimUngroupedData(){
-    if (!CURRENT_GROUP_ID){ showToast('먼저 그룹으로 로그인해주세요', true); return; }
-    if (!confirm('그룹 지정 전에 만들어둔 예전 여행/기록을 전부 지금 로그인한 그룹(' + (CURRENT_GROUP_NAME || CURRENT_GROUP_ID) + ')으로 연결할까요?')) return;
-
-    const btn = document.getElementById('btn-claim-ungrouped');
-    const resultEl = document.getElementById('claim-ungrouped-result');
-    btn.disabled = true;
-    btn.textContent = '연결하는 중…';
-    try{
-      const res = await apiPost('claim_ungrouped', {});
-      resultEl.style.display = 'block';
-      resultEl.textContent = '여행 ' + res.tripCount + '건, 일자기록 ' + res.legCount + '건을 연결했어요.';
-      showToast('연결 완료 ✓');
-      await loadAll();
-    }catch(err){
-      resultEl.style.display = 'block';
-      resultEl.textContent = '연결 실패: ' + err.message;
-    }finally{
-      btn.disabled = false;
-      btn.textContent = '예전(그룹 지정 전) 기록을 이 그룹에 연결하기';
     }
   }
 
@@ -910,54 +869,6 @@
     showToast('이 기기 재정의를 지웠어요. config.json 값을 사용합니다.');
     refreshStatus();
     loadAll();
-  }
-
-  async function runMigration(){
-    const btn = document.getElementById('btn-migrate');
-    const resultEl = document.getElementById('migrateResult');
-    btn.disabled = true;
-    btn.textContent = '점검 중…';
-    resultEl.textContent = '';
-    try{
-      const res = await apiPost('migrate', {});
-      const parts = [];
-      if (res.trips) parts.push('여행: ' + res.trips.message);
-      if (res.legs) parts.push('일자기록: ' + res.legs.message);
-      resultEl.textContent = parts.join(' / ');
-      showToast('점검 완료');
-      await loadAll();
-    }catch(err){
-      resultEl.textContent = '점검 실패: ' + err.message;
-      showToast('오류: ' + err.message, true);
-    }finally{
-      btn.disabled = false;
-      btn.textContent = '예전 기록 정렬 점검하기';
-    }
-  }
-
-  async function reGeocodeMissing(){
-    const btn = document.getElementById('btn-regeocode');
-    const resultEl = document.getElementById('regeocodeResult');
-    btn.disabled = true;
-    btn.textContent = '찾는 중… (기록이 많으면 시간이 걸려요)';
-    resultEl.textContent = '';
-    try{
-      const res = await apiPost('regeocode_missing', {});
-      let msg = '대상 ' + res.total + '건 중 ' + res.updated + '건 찾음';
-      if (res.stillMissing > 0) msg += ', ' + res.stillMissing + '건은 여전히 실패';
-      resultEl.textContent = msg;
-      if (res.stillMissing > 0 && res.failures && res.failures.length > 0){
-        resultEl.textContent += ' · 실패 예시: ' + res.failures.map(f => f.place + '(' + f.reason + ')').join(', ');
-      }
-      showToast(res.updated > 0 ? '좌표 ' + res.updated + '건을 채웠어요 ✓' : '새로 찾은 좌표가 없어요');
-      await loadAll();
-    }catch(err){
-      resultEl.textContent = '실패: ' + err.message;
-      showToast('오류: ' + err.message, true);
-    }finally{
-      btn.disabled = false;
-      btn.textContent = '위치 좌표 없는 기록 다시 찾기';
-    }
   }
 
   // ---------- 다중선택 chip ----------
@@ -1721,8 +1632,18 @@
       if (urls.length === 0) return;
       const place = l.toPlace || l.fromPlace || '장소 미상';
       if (!byPlace[place]) byPlace[place] = { photos: [], lastDate: '' };
-      urls.forEach(u => byPlace[place].photos.push({ url: u, legId: l.id }));
+      const legDate = l.date || '';
+      const legTime = l.departTime || l.arriveTime || '';
+      urls.forEach(u => byPlace[place].photos.push({ url: u, legId: l.id, date: legDate, time: legTime }));
       if (l.date && l.date > byPlace[place].lastDate) byPlace[place].lastDate = l.date;
+    });
+
+    // 방문지 안에서는 방문일자 → 시간 순으로 사진을 정리
+    Object.keys(byPlace).forEach(function(place){
+      byPlace[place].photos.sort(function(a, b){
+        const d = (a.date || '').localeCompare(b.date || '');
+        return d !== 0 ? d : (a.time || '').localeCompare(b.time || '');
+      });
     });
 
     const places = Object.keys(byPlace).sort((a,b) => (byPlace[b].lastDate||'').localeCompare(byPlace[a].lastDate||''));
