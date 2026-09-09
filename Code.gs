@@ -23,7 +23,7 @@
  */
 
 // ===== 설정 =====
-const SCRIPT_VERSION = '2.25.4'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
+const SCRIPT_VERSION = '2.25.5'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
 
 const PHOTO_FOLDER_NAME = '여행이력_사진';
 const TRIPS_SHEET = 'Trips';
@@ -60,6 +60,7 @@ function doPost(e) {
 
     if (type === 'group_login') return jsonOut(groupLogin_(data.groupId, data.memberName));
     if (type === 'group_register') return jsonOut(registerGroup_(data.groupId, data.groupName, data.members));
+    if (type === 'disable_groups') return jsonOut(disableGroups_());
 
     if (type === 'trip_add') return jsonOut(addTrip_(data));
     if (type === 'trip_update') return jsonOut(updateTrip_(data));
@@ -180,6 +181,15 @@ function geocodeLocation_(place) {
 }
 
 /**
+ * 셀 값이 실제로 유효한 위도/경도 숫자인지 판단.
+ * 날짜 서식이 남아있는 셀은 getValues()가 숫자가 아니라 Date 객체를 돌려주므로(typeof !== 'number')
+ * 자동으로 "유효하지 않음"으로 잡힘.
+ */
+function isValidLatLng_(value, maxAbs) {
+  return typeof value === 'number' && isFinite(value) && Math.abs(value) <= maxAbs;
+}
+
+/**
  * 위도/경도가 비어있는 기존 일자기록들만 골라 다시 지오코딩을 시도함
  * (설정 탭 "위치 좌표 없는 기록 다시 찾기" 버튼에서 호출)
  * - 이미 좌표가 있는 행은 건드리지 않음
@@ -203,9 +213,12 @@ function regeocodeMissing_() {
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const hasLat = row[LAT_COL - 1] !== '' && row[LAT_COL - 1] !== null && row[LAT_COL - 1] !== undefined;
-    const hasLng = row[LNG_COL - 1] !== '' && row[LNG_COL - 1] !== null && row[LNG_COL - 1] !== undefined;
-    if (hasLat && hasLng) continue; // 이미 좌표가 있으면 건너뜀
+    // 과거 컬럼 재배치(migrateAll_) 과정에서 셀 서식(형식)은 옮겨지지 않고 그 자리에 남아있는 경우가 있어,
+    // 위도/경도 칸에 "날짜" 서식이 남아있으면 숫자를 넣어도 시트/앱에서 날짜(예: 1900. 2. 2)로 보이고
+    // 위도 범위(-90~90)를 벗어나 지도에서 계속 빠짐. 그래서 "비어있는지"가 아니라 "실제로 유효한 숫자인지"로 판단함
+    const latValid = isValidLatLng_(row[LAT_COL - 1], 90);
+    const lngValid = isValidLatLng_(row[LNG_COL - 1], 180);
+    if (latValid && lngValid) continue; // 이미 유효한 좌표가 있으면 건너뜀
 
     const place = row[TO_COL - 1] || row[FROM_COL - 1];
     if (!place) continue; // 장소명 자체가 없는 행(머무는 곳만 기록 등)은 대상에서 제외
@@ -213,8 +226,10 @@ function regeocodeMissing_() {
     total++;
     const geo = geocodeLocation_(place);
     if (geo.lat !== '' && geo.lng !== '') {
-      sheet.getRange(i + 2, LAT_COL).setValue(geo.lat);
-      sheet.getRange(i + 2, LNG_COL).setValue(geo.lng);
+      // 셀 서식을 숫자(소수점)로 명시적으로 재설정한 뒤 값을 넣어서, 예전에 남아있던 날짜 서식 때문에
+      // 다시 날짜처럼 보이는 문제가 재발하지 않도록 함
+      sheet.getRange(i + 2, LAT_COL).setNumberFormat('0.000000').setValue(geo.lat);
+      sheet.getRange(i + 2, LNG_COL).setNumberFormat('0.000000').setValue(geo.lng);
       updated++;
     } else {
       stillMissing++;
@@ -290,6 +305,20 @@ function registerGroup_(groupId, groupName, membersStr) {
 
   sheet.appendRow([cleanId, cleanName, membersStr || '', new Date()]);
   return { ok: true, groupId: cleanId, groupName: cleanName, version: SCRIPT_VERSION };
+}
+
+/**
+ * 그룹 기능을 완전히 끄고 예전처럼 로그인 없는 개인 모드로 되돌림.
+ * Groups 시트를 직접 열어 행을 지우는 것과 동일한 효과를, 화면(설정 탭)에서 바로 할 수 있게 함.
+ * 등록된 그룹은 모두 사라지지만 여행/기록 데이터 자체는 그대로 남아있음(그룹ID 값만 무시하게 됨).
+ */
+function disableGroups_() {
+  const sheet = getSheet_(GROUPS_SHEET, GROUP_HEADERS);
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= 2) {
+    sheet.deleteRows(2, lastRow - 1);
+  }
+  return { ok: true, version: SCRIPT_VERSION };
 }
 
 /**

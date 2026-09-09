@@ -387,6 +387,8 @@
         </div>
         <button type="button" class="btn-sm" id="current-member-action-btn" onclick="handleMemberActionClick()">그룹 로그인 / 만들기</button>
       </div>
+      <button type="button" class="btn-sm" id="btn-disable-groups" style="display:none; width:100%; margin-top:12px; color:var(--brick); border-color:var(--brick);" onclick="disableGroupsFeature()">그룹 기능 끄기 (개인 모드로 전환)</button>
+      <div class="hint" id="disable-groups-hint" style="margin-top:6px; display:none;">등록된 모든 그룹이 삭제되고, 이후엔 로그인 없이 누구나 바로 기록을 보고 쓸 수 있는 개인 모드로 돌아가요. 여행/기록 데이터 자체는 그대로 남아있어요.</div>
     </div>
     <div class="card">
       <div class="section-label">화면 테마</div>
@@ -476,7 +478,7 @@
 </div>
 
 <script>
-  const APP_VERSION = '2.25.4'; // 지도 마커 크기/이름표 기능은 프론트엔드만 변경 (백엔드 재배포 불필요)
+  const APP_VERSION = '2.25.5';
   const STORAGE_KEY_URL = 'travellog_api_url';
   const THEME_KEY = 'travellog_theme';
   const DEFAULT_API_URL = ''; // 배포 후 여기에 기본 URL을 넣어두면 매번 설정할 필요가 없습니다.
@@ -753,6 +755,34 @@
       document.getElementById('current-member-label').textContent = '그룹 기능';
       document.getElementById('current-member-action-btn').textContent = '그룹 로그인 / 만들기';
       if (headerRow) headerRow.style.display = 'none';
+    }
+    // 그룹 기능이 켜져있을 때만 "그룹 기능 끄기" 버튼을 보여줌
+    document.getElementById('btn-disable-groups').style.display = MULTI_TENANT ? 'block' : 'none';
+    document.getElementById('disable-groups-hint').style.display = MULTI_TENANT ? 'block' : 'none';
+  }
+
+  async function disableGroupsFeature(){
+    if (!confirm('등록된 모든 그룹을 삭제하고, 로그인 없이 누구나 바로 이용하는 개인 모드로 전환할까요?\n(같이 쓰던 다른 가족이 있다면 이후 로그인 화면 없이 바로 모든 기록에 접근하게 됩니다.)')) return;
+    const btn = document.getElementById('btn-disable-groups');
+    btn.disabled = true;
+    btn.textContent = '전환하는 중…';
+    try{
+      await apiPost('disable_groups', {});
+      localStorage.removeItem(GROUP_ID_KEY);
+      localStorage.removeItem(GROUP_NAME_KEY);
+      localStorage.removeItem(MEMBER_STORAGE_KEY);
+      CURRENT_GROUP_ID = '';
+      CURRENT_GROUP_NAME = '';
+      CURRENT_MEMBER = '';
+      MULTI_TENANT = false;
+      updateCurrentMemberDisplay();
+      showToast('개인 모드로 전환됐어요 ✓');
+      await loadAll();
+    }catch(err){
+      showToast('오류: ' + err.message, true);
+    }finally{
+      btn.disabled = false;
+      btn.textContent = '그룹 기능 끄기 (개인 모드로 전환)';
     }
   }
 
