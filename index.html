@@ -1442,7 +1442,8 @@
       '<circle cx="12" cy="11" r="4.4" fill="#fff"/>' +
     '</svg>';
   const RED_PIN_ICON_URL = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(RED_PIN_SVG);
-  const PIN_BASE_W = 34, PIN_BASE_H = 44, PIN_BASE_ANCHOR_X = 17, PIN_BASE_ANCHOR_Y = 42, PIN_BASE_ZOOM = 7;
+  // 기본 핀 크기를 기존의 30%로 축소 (34x44 → 약 10x13)
+  const PIN_BASE_W = 10, PIN_BASE_H = 13, PIN_BASE_ANCHOR_X = 5, PIN_BASE_ANCHOR_Y = 13, PIN_BASE_ZOOM = 7;
 
   function clearMapMarkers_(){
     gMapMarkers.forEach(m => m.setMap(null));
