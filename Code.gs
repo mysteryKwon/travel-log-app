@@ -23,7 +23,7 @@
  */
 
 // ===== 설정 =====
-const SCRIPT_VERSION = '2.25.5'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
+const SCRIPT_VERSION = '2.25.6'; // 프론트엔드 index.html의 APP_VERSION과 비교해 설정 탭에 표시됨
 
 const PHOTO_FOLDER_NAME = '여행이력_사진';
 const TRIPS_SHEET = 'Trips';
@@ -64,12 +64,12 @@ function doPost(e) {
 
     if (type === 'trip_add') return jsonOut(addTrip_(data));
     if (type === 'trip_update') return jsonOut(updateTrip_(data));
-    if (type === 'trip_delete') return jsonOut(deleteTrip_(data.id, data.groupId));
+    if (type === 'trip_delete') return jsonOut(deleteTrip_(data.id, data.groupId, data.requesterName));
 
     if (type === 'leg_add') return jsonOut(addLeg_(data, photos));
     if (type === 'leg_update') return jsonOut(updateLeg_(data, photos));
-    if (type === 'leg_delete') return jsonOut(deleteLeg_(data.id, data.groupId));
-    if (type === 'photo_delete') return jsonOut(deletePhotos_(data.legId, data.urls || [], data.groupId));
+    if (type === 'leg_delete') return jsonOut(deleteLeg_(data.id, data.groupId, data.requesterName));
+    if (type === 'photo_delete') return jsonOut(deletePhotos_(data.legId, data.urls || [], data.groupId, data.requesterName));
 
     if (type === 'migrate') return jsonOut(migrateAll_());
     if (type === 'claim_ungrouped') return jsonOut(claimUngroupedData_(data.groupId));
@@ -488,13 +488,18 @@ function updateTrip_(data) {
   const sheet = getSheet_(TRIPS_SHEET, TRIP_HEADERS);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) throw new Error('여행이 없습니다.');
-  const rows = sheet.getRange(2, 1, lastRow - 1, 2).getValues(); // ID, 그룹ID
+  const rows = sheet.getRange(2, 1, lastRow - 1, TRIP_HEADERS.length).getValues();
+  const END_COL = TRIP_HEADERS.indexOf('종료일'); // 0-인덱스
+  const AUTHOR_COL = TRIP_HEADERS.indexOf('작성자'); // 0-인덱스
   for (let i = 0; i < rows.length; i++) {
     if (rows[i][0] === data.id) {
       assertGroupMatch_(rows[i][1], data.groupId);
+      const existingAuthor = rows[i][AUTHOR_COL];
+      assertRecordEditable_(existingAuthor, formatDate_(rows[i][END_COL]), data.requesterName);
       sheet.getRange(i + 2, 3, 1, 8).setValues([[
         data.title || '', data.startDate || '', data.endDate || '',
-        data.companions || '', data.budget || '', data.rating || '', data.memo || '', data.author || ''
+        data.companions || '', data.budget || '', data.rating || '', data.memo || '',
+        existingAuthor || data.author || '' // 등록 이후 작성자는 바뀌지 않게 원래 값을 유지
       ]]);
       return { ok: true, version: SCRIPT_VERSION };
     }
@@ -502,14 +507,17 @@ function updateTrip_(data) {
   throw new Error('해당 여행을 찾을 수 없습니다.');
 }
 
-function deleteTrip_(id, groupId) {
+function deleteTrip_(id, groupId, requesterName) {
   const tripSheet = getSheet_(TRIPS_SHEET, TRIP_HEADERS);
   const tLast = tripSheet.getLastRow();
   if (tLast >= 2) {
-    const rows = tripSheet.getRange(2, 1, tLast - 1, 2).getValues(); // ID, 그룹ID
+    const rows = tripSheet.getRange(2, 1, tLast - 1, TRIP_HEADERS.length).getValues();
+    const END_COL = TRIP_HEADERS.indexOf('종료일');
+    const AUTHOR_COL = TRIP_HEADERS.indexOf('작성자');
     for (let i = 0; i < rows.length; i++) {
       if (rows[i][0] === id) {
         assertGroupMatch_(rows[i][1], groupId);
+        assertRecordEditable_(rows[i][AUTHOR_COL], formatDate_(rows[i][END_COL]), requesterName);
         tripSheet.deleteRow(i + 2);
         break;
       }
@@ -531,6 +539,45 @@ function assertGroupMatch_(rowGroupId, requestGroupId) {
   if (!hasGroups_()) return; // 개인 사용(그룹 미설정) 모드에서는 검사하지 않음
   if (String(rowGroupId || '') !== String(requestGroupId || '')) {
     throw new Error('다른 그룹의 기록은 수정/삭제할 수 없습니다.');
+  }
+}
+
+/** 특정 여행(TripID)의 종료일을 조회. 못 찾으면 빈 문자열을 반환 */
+function getTripEndDate_(tripId) {
+  if (!tripId) return '';
+  const ss = getSpreadsheet_();
+  const sheet = ss.getSheetByName(TRIPS_SHEET);
+  if (!sheet) return '';
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return '';
+  const END_COL = TRIP_HEADERS.indexOf('종료일') + 1;
+  const rows = sheet.getRange(2, 1, lastRow - 1, TRIP_HEADERS.length).getValues();
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i][0] === tripId) return formatDate_(rows[i][END_COL - 1]);
+  }
+  return '';
+}
+
+/** 여행 종료일 "다음날"부터를 여행이 끝난 것으로 취급 (종료일 당일까지는 그날 기록을 계속 남길 수 있게 둠) */
+function isTripEnded_(endDateStr) {
+  if (!endDateStr) return false; // 종료일을 안 적었으면 계속 진행 중인 여행으로 취급
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return today > endDateStr;
+}
+
+/**
+ * 그룹 모드에서 여행이 이미 종료된 뒤에는, 그 여행/기록을 등록한 사람(작성자)만
+ * 수정·삭제할 수 있게 막음. (개인 모드나, 여행이 아직 안 끝났을 때는 제한하지 않음.
+ * 작성자 정보가 비어있는 예전 기록은 기준이 없어 제한하지 않음)
+ */
+function assertRecordEditable_(recordAuthor, tripEndDate, requesterName) {
+  if (!hasGroups_()) return;
+  if (!isTripEnded_(tripEndDate)) return;
+  const owner = String(recordAuthor || '').trim();
+  if (!owner) return;
+  const requester = String(requesterName || '').trim();
+  if (owner !== requester) {
+    throw new Error('여행이 종료된 기록은 등록자(' + owner + ')만 수정하거나 삭제할 수 있어요.');
   }
 }
 
@@ -559,13 +606,17 @@ function updateLeg_(data, photos) {
   const sheet = getSheet_(LEGS_SHEET, LEG_HEADERS);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) throw new Error('기록이 없습니다.');
-  const rows = sheet.getRange(2, 1, lastRow - 1, 2).getValues(); // ID, 그룹ID
+  const rows = sheet.getRange(2, 1, lastRow - 1, LEG_HEADERS.length).getValues();
+  const TRIPID_COL = LEG_HEADERS.indexOf('TripID'); // 0-인덱스
+  const AUTHOR_COL = LEG_HEADERS.indexOf('작성자'); // 0-인덱스
   const geo = geocodeLocation_(data.toPlace || data.fromPlace);
   const photoUrl = combinePhotoUrls_(data.photoUrl, photos);
 
   for (let i = 0; i < rows.length; i++) {
     if (rows[i][0] === data.id) {
       assertGroupMatch_(rows[i][1], data.groupId);
+      const existingAuthor = rows[i][AUTHOR_COL];
+      assertRecordEditable_(existingAuthor, getTripEndDate_(rows[i][TRIPID_COL]), data.requesterName);
       sheet.getRange(i + 2, 4, 1, 21).setValues([[
         data.date || '', data.departTime || '', data.arriveTime || '',
         data.fromPlace || '', data.toPlace || '', data.transport || '',
@@ -573,7 +624,9 @@ function updateLeg_(data, photos) {
         data.foodType || '', data.foodName || '',
         data.actualSpend || '',
         data.costTransport || '', data.costLodging || '', data.costFood || '', data.costCoffee || '', data.costEtc || '',
-        data.memo || '', photoUrl, data.author || '', geo.lat, geo.lng
+        data.memo || '', photoUrl,
+        existingAuthor || data.author || '', // 등록 이후 작성자는 바뀌지 않게 원래 값을 유지
+        geo.lat, geo.lng
       ]]);
       return { ok: true, photoUrl: photoUrl, version: SCRIPT_VERSION };
     }
@@ -604,14 +657,17 @@ function combinePhotoUrls_(existingUrl, photos) {
   return photoUrl;
 }
 
-function deleteLeg_(id, groupId) {
+function deleteLeg_(id, groupId, requesterName) {
   const sheet = getSheet_(LEGS_SHEET, LEG_HEADERS);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) throw new Error('기록이 없습니다.');
-  const rows = sheet.getRange(2, 1, lastRow - 1, 2).getValues(); // ID, 그룹ID
+  const rows = sheet.getRange(2, 1, lastRow - 1, LEG_HEADERS.length).getValues();
+  const TRIPID_COL = LEG_HEADERS.indexOf('TripID'); // 0-인덱스
+  const AUTHOR_COL = LEG_HEADERS.indexOf('작성자'); // 0-인덱스
   for (let i = 0; i < rows.length; i++) {
     if (rows[i][0] === id) {
       assertGroupMatch_(rows[i][1], groupId);
+      assertRecordEditable_(rows[i][AUTHOR_COL], getTripEndDate_(rows[i][TRIPID_COL]), requesterName);
       sheet.deleteRow(i + 2);
       return { ok: true, version: SCRIPT_VERSION };
     }
@@ -621,9 +677,11 @@ function deleteLeg_(id, groupId) {
 
 // 사진첩에서 사진 일부만 골라 삭제 - 해당 기록의 사진링크 목록에서 지정된 URL만 제거함
 // (구글드라이브의 실제 원본 파일은 삭제하지 않고 그대로 둠)
-function deletePhotos_(legId, urlsToRemove, groupId) {
+function deletePhotos_(legId, urlsToRemove, groupId, requesterName) {
   if (!legId) throw new Error('기록을 찾을 수 없습니다.');
   const GROUP_COL = LEG_HEADERS.indexOf('그룹ID') + 1;
+  const TRIPID_COL = LEG_HEADERS.indexOf('TripID') + 1;
+  const AUTHOR_COL = LEG_HEADERS.indexOf('작성자') + 1;
   const PHOTO_COL = LEG_HEADERS.indexOf('사진링크') + 1; // 헤더 배열에서 동적으로 계산 (컬럼 추가돼도 안전)
   const sheet = getSheet_(LEGS_SHEET, LEG_HEADERS);
   const lastRow = sheet.getLastRow();
@@ -634,6 +692,9 @@ function deletePhotos_(legId, urlsToRemove, groupId) {
     if (ids[i][0] === legId) {
       const rowIndex = i + 2;
       assertGroupMatch_(sheet.getRange(rowIndex, GROUP_COL).getValue(), groupId);
+      const tripId = sheet.getRange(rowIndex, TRIPID_COL).getValue();
+      const author = sheet.getRange(rowIndex, AUTHOR_COL).getValue();
+      assertRecordEditable_(author, getTripEndDate_(tripId), requesterName);
       const cell = sheet.getRange(rowIndex, PHOTO_COL);
       const current = (cell.getValue() || '').split(',').map(s => s.trim()).filter(Boolean);
       const removeSet = {};
